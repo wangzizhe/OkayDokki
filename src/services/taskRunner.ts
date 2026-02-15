@@ -3,8 +3,12 @@ import { AgentAdapter } from "../adapters/agent/agentAdapter.js";
 import { TaskRunResult, TaskSpec } from "../types.js";
 import { PrCreator } from "./prCreator.js";
 import { DockerSandbox } from "./dockerSandbox.js";
+import { DiffPolicyOptions, evaluateDiffPolicy } from "./diffPolicy.js";
 
-export type TaskRunnerErrorCode = "SANDBOX_FAILED" | "AGENT_FAILED";
+export type TaskRunnerErrorCode =
+  | "SANDBOX_FAILED"
+  | "AGENT_FAILED"
+  | "POLICY_VIOLATION";
 
 export class TaskRunnerError extends Error {
   constructor(
@@ -19,7 +23,8 @@ export class TaskRunner {
   constructor(
     private readonly agentAdapter: AgentAdapter,
     private readonly sandbox: DockerSandbox,
-    private readonly prCreator: PrCreator
+    private readonly prCreator: PrCreator,
+    private readonly diffPolicy: DiffPolicyOptions
   ) {}
 
   async run(task: TaskSpec): Promise<TaskRunResult> {
@@ -43,6 +48,15 @@ export class TaskRunner {
 
     const diffHash = createHash("sha256").update(sandboxResult.diff).digest("hex");
     const hasDiff = sandboxResult.diff.trim().length > 0;
+    if (hasDiff) {
+      const violations = evaluateDiffPolicy(sandboxResult.diff, this.diffPolicy);
+      if (violations.length > 0) {
+        throw new TaskRunnerError(
+          `Diff policy violation: ${violations.join("; ")}`,
+          "POLICY_VIOLATION"
+        );
+      }
+    }
     const testsResult = sandboxResult.testExitCode === 0 ? "PASS" : "FAIL";
     const prLink = hasDiff ? await this.prCreator.createDraftPr(task) : null;
 

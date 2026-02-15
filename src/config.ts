@@ -10,6 +10,20 @@ function required(name: string): string {
   return value;
 }
 
+function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  return defaultValue;
+}
+
 export const config = {
   port: Number(process.env.PORT ?? "3000"),
   dbPath: process.env.DATABASE_PATH ?? "./okaydokki.db",
@@ -21,6 +35,13 @@ export const config = {
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean),
+  blockedPathPrefixes: (process.env.BLOCKED_PATH_PREFIXES ?? ".github/workflows/,secrets/")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean),
+  maxChangedFiles: Number(process.env.MAX_CHANGED_FILES ?? "200"),
+  maxDiffBytes: Number(process.env.MAX_DIFF_BYTES ?? "500000"),
+  disallowBinaryPatch: parseBoolean(process.env.DISALLOW_BINARY_PATCH, true),
   agentCliTemplate:
     process.env.AGENT_CLI_TEMPLATE ??
     "printf 'agent placeholder for %s\\n' \"$OKD_INTENT\" && touch .okaydokki-agent && printf '{\"engine\":\"codex\",\"protocol\":\"v1\"}\\n' > \"$OKD_OUTDIR/agent.meta.json\"",

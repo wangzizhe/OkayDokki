@@ -45,7 +45,7 @@
   - If diff is non-empty and PR link exists: `PR_CREATED` event is logged.
   - Task ends at `COMPLETED`.
 - On failure:
-  - `FAILED` event is logged (includes agent/test failures).
+  - `FAILED` event is logged (includes agent/test/policy failures).
   - Task moves to `FAILED`.
 
 4. `REJECT`

@@ -27,7 +27,12 @@ async function main(): Promise<void> {
     defaultTestCommand: config.defaultTestCommand
   });
   const prCreator = new PrCreator();
-  const runner = new TaskRunner(agent, sandbox, prCreator);
+  const runner = new TaskRunner(agent, sandbox, prCreator, {
+    blockedPathPrefixes: config.blockedPathPrefixes,
+    maxChangedFiles: config.maxChangedFiles,
+    maxDiffBytes: config.maxDiffBytes,
+    disallowBinaryPatch: config.disallowBinaryPatch
+  });
   const taskService = new TaskService(repo, audit, runner, config.repoSnapshotRoot);
   const telegram = new TelegramAdapter(config.telegramBotToken, config.telegramWebhookSecret);
   const gateway = new TaskGateway(telegram, taskService);

@@ -23,7 +23,13 @@ Response `200`:
   "sandbox": {
     "image": "node:22-bookworm-slim",
     "defaultTestCommand": "npm test",
-    "allowedTestCommands": ["npm test", "npm run test"]
+    "allowedTestCommands": ["npm test", "npm run test"],
+    "diffPolicy": {
+      "blockedPathPrefixes": [".github/workflows/", "secrets/"],
+      "maxChangedFiles": 200,
+      "maxDiffBytes": 500000,
+      "disallowBinaryPatch": true
+    }
   }
 }
 ```
@@ -158,4 +164,5 @@ Current `error_code` values:
 - `TEST_FAILED`
 - `AGENT_FAILED`
 - `SANDBOX_FAILED`
+- `POLICY_VIOLATION`
 - `RUN_FAILED`

@@ -108,6 +108,7 @@ npm test
 - Test command is enforced by `ALLOWED_TEST_COMMANDS`.
 - Empty diff skips PR creation.
 - Test failure marks task as `FAILED`.
+- Diff policy gate blocks unsafe PR candidates (blocked paths, binary patches, oversized diffs).
 
 ## Internal API
 

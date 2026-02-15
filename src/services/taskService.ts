@@ -23,6 +23,7 @@ export class TaskServiceError extends Error {
       | "TEST_FAILED"
       | "AGENT_FAILED"
       | "SANDBOX_FAILED"
+      | "POLICY_VIOLATION"
       | "RUN_FAILED"
   ) {
     super(message);

@@ -13,6 +13,12 @@ export interface HealthDetails {
     image: string;
     defaultTestCommand: string;
     allowedTestCommands: string[];
+    diffPolicy: {
+      blockedPathPrefixes: string[];
+      maxChangedFiles: number;
+      maxDiffBytes: number;
+      disallowBinaryPatch: boolean;
+    };
   };
 }
 
@@ -23,6 +29,13 @@ export function getHealthDetails(): HealthDetails {
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
+  const blockedPathPrefixes = (process.env.BLOCKED_PATH_PREFIXES ?? ".github/workflows/,secrets/")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  const maxChangedFiles = Number(process.env.MAX_CHANGED_FILES ?? "200");
+  const maxDiffBytes = Number(process.env.MAX_DIFF_BYTES ?? "500000");
+  const disallowBinaryPatch = (process.env.DISALLOW_BINARY_PATCH ?? "true").toLowerCase() !== "false";
 
   return {
     service: "okaydokki",
@@ -38,7 +51,13 @@ export function getHealthDetails(): HealthDetails {
     sandbox: {
       image: sandboxImage,
       defaultTestCommand,
-      allowedTestCommands
+      allowedTestCommands,
+      diffPolicy: {
+        blockedPathPrefixes,
+        maxChangedFiles,
+        maxDiffBytes,
+        disallowBinaryPatch
+      }
     }
   };
 }
