@@ -2,6 +2,32 @@
 
 Base path: `/api/v1`
 
+## 0) Health Details
+
+`GET /health/details`
+
+Response `200`:
+
+```json
+{
+  "service": "okaydokki",
+  "status": "ok",
+  "nodeVersion": "v22.0.0",
+  "timestamp": "2026-02-15T00:00:00.000Z",
+  "contracts": {
+    "taskLifecycle": "v1",
+    "gatewayApi": "v1",
+    "agentAdapter": "v1",
+    "auditLog": "v1.0"
+  },
+  "sandbox": {
+    "image": "node:22-bookworm-slim",
+    "defaultTestCommand": "npm test",
+    "allowedTestCommands": ["npm test", "npm run test"]
+  }
+}
+```
+
 ## 1) Create Task
 
 `POST /tasks`

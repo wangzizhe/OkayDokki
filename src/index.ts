@@ -11,6 +11,7 @@ import { TelegramAdapter } from "./adapters/im/telegramAdapter.js";
 import { DockerSandbox } from "./services/dockerSandbox.js";
 import { TaskService } from "./services/taskService.js";
 import { createTaskRoutes } from "./routes/taskRoutes.js";
+import { getHealthDetails } from "./services/health.js";
 
 async function main(): Promise<void> {
   const db = createDb();
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
   const app = express();
   app.use(express.json());
   app.get("/healthz", (_req, res) => res.status(200).json({ ok: true }));
+  app.get("/api/v1/health/details", (_req, res) => res.status(200).json(getHealthDetails()));
   app.use("/api/v1", createTaskRoutes(taskService));
   app.use(telegram.mountWebhook("/webhook/telegram"));
 

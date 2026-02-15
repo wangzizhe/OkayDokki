@@ -114,6 +114,7 @@ npm test
 - `POST /api/v1/tasks`
 - `GET /api/v1/tasks/:taskId`
 - `POST /api/v1/tasks/:taskId/actions`
+- `GET /api/v1/health/details`
 
 Contracts:
 
