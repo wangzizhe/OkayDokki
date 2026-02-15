@@ -174,3 +174,24 @@ test("POST /tasks/:taskId/actions maps service conflict", async () => {
   assert.deepEqual(result.body, { error: "Task t1 is WAIT_CLARIFY, retry is not available." });
 });
 
+test("POST /tasks/:taskId/actions returns 400 for invalid action", async () => {
+  const mock: MockService = {
+    createTask: () => ({
+      task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" },
+      needsClarify: false
+    }),
+    getTask: () => ({ taskId: "t1", status: "WAIT_APPROVE_WRITE" }),
+    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } })
+  };
+  const router = createTaskRoutes(mock as never);
+  const result = await invokeRoute({
+    router,
+    method: "post",
+    path: "/tasks/:taskId/actions",
+    reqBody: { action: "run_now", actor: "tg:1" },
+    reqParams: { taskId: "t1" }
+  });
+
+  assert.equal(result.statusCode, 400);
+  assert.deepEqual(result.body, { error: "action must be one of: retry, approve, reject" });
+});

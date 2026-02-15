@@ -19,6 +19,11 @@ export class TaskServiceError extends Error {
 }
 
 export type TaskAction = "retry" | "approve" | "reject";
+const TASK_ACTIONS: TaskAction[] = ["retry", "approve", "reject"];
+
+export function isTaskAction(value: string): value is TaskAction {
+  return TASK_ACTIONS.includes(value as TaskAction);
+}
 
 export interface CreateTaskInput {
   source: "telegram" | "api";
@@ -92,6 +97,13 @@ export class TaskService {
   }
 
   async applyAction(taskId: string, action: TaskAction, actor: string): Promise<ApplyActionResult> {
+    if (!isTaskAction(action)) {
+      throw new TaskServiceError(
+        `Invalid action: ${String(action)}. Expected one of: retry, approve, reject.`,
+        400
+      );
+    }
+
     const task = this.getTask(taskId);
 
     if (action === "retry") {

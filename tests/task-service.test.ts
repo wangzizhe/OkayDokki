@@ -187,3 +187,29 @@ test("approve failure transitions task to FAILED and logs FAILED event", async (
     cleanup(ctx.tempDir);
   }
 });
+
+test("service rejects invalid action with 400", async () => {
+  const ctx = setup(defaultRunResult());
+  try {
+    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    const created = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "fix login 500"
+    });
+
+    await assert.rejects(
+      () =>
+        ctx.service.applyAction(created.task.taskId, "run_now" as unknown as "approve", "tg:1"),
+      (err: unknown) => {
+        assert.ok(err instanceof TaskServiceError);
+        assert.equal(err.statusCode, 400);
+        assert.match(err.message, /Invalid action/);
+        return true;
+      }
+    );
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});

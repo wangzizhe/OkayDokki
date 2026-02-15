@@ -1,5 +1,5 @@
 import express from "express";
-import { TaskAction, TaskService, TaskServiceError } from "../services/taskService.js";
+import { TaskAction, TaskService, TaskServiceError, isTaskAction } from "../services/taskService.js";
 
 type CreateTaskBody = {
   trigger_user?: string;
@@ -9,7 +9,7 @@ type CreateTaskBody = {
 };
 
 type ActionBody = {
-  action?: TaskAction;
+  action?: string;
   actor?: string;
 };
 
@@ -67,6 +67,9 @@ export function createTaskRoutes(service: TaskService): express.Router {
       if (!body.action) {
         badRequest("action is required");
       }
+      if (!isTaskAction(body.action)) {
+        badRequest("action must be one of: retry, approve, reject");
+      }
       if (!body.actor) {
         badRequest("actor is required");
       }
@@ -91,4 +94,3 @@ function sendError(res: express.Response, err: unknown): void {
   }
   res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
 }
-

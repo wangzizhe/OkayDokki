@@ -106,7 +106,7 @@ For `approve`, `run_result` may include:
 
 Errors:
 
-- `400`: bad request body
+- `400`: bad request body (including invalid `action`)
 - `404`: task not found
 - `409`: invalid state/action conflict
 - `500`: run failure
