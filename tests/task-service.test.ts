@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import { TaskRepository } from "../src/repositories/taskRepository.js";
 import { AuditLogger } from "../src/services/auditLogger.js";
 import { TaskRunner } from "../src/services/taskRunner.js";
-import { TaskService } from "../src/services/taskService.js";
+import { TaskService, TaskServiceError } from "../src/services/taskService.js";
 import { TaskRunResult } from "../src/types.js";
 
 type TestContext = {
@@ -17,7 +17,11 @@ type TestContext = {
   service: TaskService;
 };
 
-function setup(runnerResult: TaskRunResult): TestContext {
+function setup(
+  runnerImpl:
+    | TaskRunResult
+    | ((...args: unknown[]) => Promise<TaskRunResult> | TaskRunResult)
+): TestContext {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "okd-test-"));
   const repoRoot = path.join(tempDir, "repos");
   fs.mkdirSync(repoRoot, { recursive: true });
@@ -29,8 +33,10 @@ function setup(runnerResult: TaskRunResult): TestContext {
 
   const repo = new TaskRepository(db as never);
   const audit = new AuditLogger(auditPath);
+  const run =
+    typeof runnerImpl === "function" ? runnerImpl : async () => runnerImpl;
   const runner = {
-    run: async () => runnerResult
+    run
   } as unknown as TaskRunner;
   const service = new TaskService(repo, audit, runner, repoRoot);
 
@@ -63,6 +69,7 @@ test("createTask enters WAIT_CLARIFY when snapshot is missing", () => {
 
     assert.equal(created.needsClarify, true);
     assert.equal(created.task.status, "WAIT_CLARIFY");
+    assert.equal(created.task.source.im, "api");
     assert.ok(created.expectedPath?.endsWith(path.join("repos", "org", "name")));
   } finally {
     cleanup(ctx.tempDir);
@@ -121,3 +128,62 @@ test("approve runs task and completes with audit trail", async () => {
   }
 });
 
+test("retry returns 409 when snapshot is still missing", async () => {
+  const ctx = setup(defaultRunResult());
+  try {
+    const created = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "fix login 500"
+    });
+    await assert.rejects(
+      () => ctx.service.applyAction(created.task.taskId, "retry", "tg:1"),
+      (err: unknown) => {
+        assert.ok(err instanceof TaskServiceError);
+        assert.equal(err.statusCode, 409);
+        assert.match(err.message, /Snapshot still missing/);
+        return true;
+      }
+    );
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});
+
+test("approve failure transitions task to FAILED and logs FAILED event", async () => {
+  const ctx = setup(async () => {
+    throw new Error("runner exploded");
+  });
+  try {
+    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    const created = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "fix login 500"
+    });
+
+    await assert.rejects(
+      () => ctx.service.applyAction(created.task.taskId, "approve", "tg:1"),
+      (err: unknown) => {
+        assert.ok(err instanceof TaskServiceError);
+        assert.equal(err.statusCode, 500);
+        return true;
+      }
+    );
+
+    const task = ctx.service.getTask(created.task.taskId);
+    assert.equal(task.status, "FAILED");
+
+    const lines = fs
+      .readFileSync(ctx.auditPath, "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { eventType: string });
+    assert.deepEqual(lines.map((line) => line.eventType), ["REQUEST", "APPROVE", "FAILED"]);
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});

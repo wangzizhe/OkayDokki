@@ -52,7 +52,7 @@ export class TaskService {
     const status = hasSnapshot ? "WAIT_APPROVE_WRITE" : "WAIT_CLARIFY";
     const task: TaskSpec = {
       taskId: newTaskId(),
-      source: { im: "telegram" },
+      source: { im: input.source },
       triggerUser: input.triggerUser,
       repo: input.repo,
       branch: `agent/${Date.now()}`,
@@ -121,6 +121,12 @@ export class TaskService {
     }
 
     if (action === "reject") {
+      if (task.status !== "WAIT_CLARIFY" && task.status !== "WAIT_APPROVE_WRITE") {
+        throw new TaskServiceError(
+          `Task ${taskId} is ${task.status}, reject is only allowed in pending states.`,
+          409
+        );
+      }
       const updated = this.repo.transition(taskId, "FAILED");
       this.audit.append({
         timestamp: nowIso(),

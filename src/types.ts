@@ -17,7 +17,7 @@ export type EventType =
   | "FAILED";
 
 export interface Source {
-  im: "telegram";
+  im: "telegram" | "api";
 }
 
 export interface TaskSpec {

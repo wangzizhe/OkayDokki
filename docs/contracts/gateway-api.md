@@ -23,7 +23,7 @@ Response `201`:
 {
   "task": {
     "taskId": "uuid",
-    "source": { "im": "telegram" },
+    "source": { "im": "api" },
     "triggerUser": "tg:12345",
     "repo": "org/name",
     "branch": "agent/1739650000000",
