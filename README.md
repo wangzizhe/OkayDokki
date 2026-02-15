@@ -139,3 +139,7 @@ Minimal CI is enabled via GitHub Actions:
 Workflow file:
 
 - `.github/workflows/ci.yml`
+
+## License
+
+Apache License 2.0 (`Apache-2.0`). See `LICENSE`.
