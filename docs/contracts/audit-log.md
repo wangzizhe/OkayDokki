@@ -23,6 +23,7 @@ Allowed `eventType` values:
 ## Optional Fields
 
 - `diffHash` (string)
+- `errorCode` (string)
 - `agentLogs` (string[])
 - `approvalDecision` (`APPROVE` | `REJECT`)
 - `testsResult` (string)
@@ -42,5 +43,5 @@ Allowed `eventType` values:
 {"auditVersion":"1.0","timestamp":"2026-02-15T09:00:00.000Z","taskId":"t1","triggerUser":"tg:123","eventType":"REQUEST","message":"fix login 500"}
 {"auditVersion":"1.0","timestamp":"2026-02-15T09:01:00.000Z","taskId":"t1","triggerUser":"tg:123","eventType":"APPROVE","approvalDecision":"APPROVE","message":"Approved by tg:123"}
 {"auditVersion":"1.0","timestamp":"2026-02-15T09:02:00.000Z","taskId":"t1","triggerUser":"tg:123","eventType":"RUN","diffHash":"abc","testsResult":"PASS","agentLogs":["ok"]}
+{"auditVersion":"1.0","timestamp":"2026-02-15T09:03:00.000Z","taskId":"t1","triggerUser":"tg:123","eventType":"FAILED","errorCode":"TEST_FAILED","message":"Tests failed. npm test failed"}
 ```
-

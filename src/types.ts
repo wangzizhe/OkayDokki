@@ -55,6 +55,7 @@ export interface AuditRecord {
   taskId: string;
   triggerUser: string;
   eventType: EventType;
+  errorCode?: string;
   diffHash?: string;
   agentLogs?: string[];
   approvalDecision?: "APPROVE" | "REJECT";

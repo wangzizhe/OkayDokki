@@ -222,12 +222,20 @@ export class TaskService {
       const completed = this.repo.transition(taskId, "COMPLETED");
       return { task: completed, runResult };
     } catch (err) {
+      let errorCode: TaskServiceError["code"] = "RUN_FAILED";
+      if (err instanceof TaskServiceError) {
+        errorCode = err.code;
+      } else if (err instanceof TaskRunnerError) {
+        errorCode = err.code;
+      }
+
       const failed = this.repo.transition(taskId, "FAILED");
       this.audit.append({
         timestamp: nowIso(),
         taskId,
         triggerUser: task.triggerUser,
         eventType: "FAILED",
+        errorCode,
         message: err instanceof Error ? err.message : String(err)
       });
       if (err instanceof TaskServiceError) {

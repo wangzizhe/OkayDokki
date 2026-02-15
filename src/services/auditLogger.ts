@@ -57,5 +57,8 @@ export class AuditLogger {
     if (record.agentLogs !== undefined && !record.agentLogs.every((x) => typeof x === "string")) {
       throw new Error("agentLogs must be an array of strings");
     }
+    if (record.errorCode !== undefined && typeof record.errorCode !== "string") {
+      throw new Error("errorCode must be a string");
+    }
   }
 }

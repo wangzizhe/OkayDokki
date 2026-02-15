@@ -185,8 +185,9 @@ test("approve failure transitions task to FAILED and logs FAILED event", async (
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as { eventType: string });
+      .map((line) => JSON.parse(line) as { eventType: string; errorCode?: string });
     assert.deepEqual(lines.map((line) => line.eventType), ["REQUEST", "APPROVE", "FAILED"]);
+    assert.equal(lines[2]?.errorCode, "RUN_FAILED");
   } finally {
     cleanup(ctx.tempDir);
   }
@@ -257,8 +258,9 @@ test("tests failure transitions task to FAILED", async () => {
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as { eventType: string });
+      .map((line) => JSON.parse(line) as { eventType: string; errorCode?: string });
     assert.deepEqual(lines.map((line) => line.eventType), ["REQUEST", "APPROVE", "RUN", "FAILED"]);
+    assert.equal(lines[3]?.errorCode, "TEST_FAILED");
   } finally {
     cleanup(ctx.tempDir);
   }
