@@ -42,10 +42,10 @@
 - Moves task to `RUNNING`, then executes agent and tests in sandbox.
 - On success:
   - `RUN` event is logged.
-  - If PR link exists: `PR_CREATED` event is logged.
+  - If diff is non-empty and PR link exists: `PR_CREATED` event is logged.
   - Task ends at `COMPLETED`.
 - On failure:
-  - `FAILED` event is logged.
+  - `FAILED` event is logged (includes agent/test failures).
   - Task moves to `FAILED`.
 
 4. `REJECT`

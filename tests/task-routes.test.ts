@@ -23,7 +23,15 @@ type MockService = {
     actor: string
   ) => Promise<{
     task: { taskId: string; status: string };
-    runResult?: { testsResult: string; diffHash: string; agentLogs: string[]; prLink: string | null };
+    runResult?: {
+      testsResult: string;
+      testLog: string;
+      diffHash: string;
+      hasDiff: boolean;
+      agentLogs: string[];
+      agentMeta: Record<string, string>;
+      prLink: string | null;
+    };
   }>;
 };
 

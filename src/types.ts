@@ -41,7 +41,9 @@ export interface AgentResult {
 
 export interface TaskRunResult {
   testsResult: string;
+  testLog: string;
   diffHash: string;
+  hasDiff: boolean;
   agentLogs: string[];
   agentMeta: Record<string, string>;
   prLink: string | null;

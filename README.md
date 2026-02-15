@@ -106,6 +106,8 @@ npm test
 - Diff is generated automatically as `/out/patch.diff` by comparing `/repo` and `/work`.
 - Optional metadata file: `/out/agent.meta.json` (flat string JSON object).
 - Test command is enforced by `ALLOWED_TEST_COMMANDS`.
+- Empty diff skips PR creation.
+- Test failure marks task as `FAILED`.
 
 ## Internal API
 

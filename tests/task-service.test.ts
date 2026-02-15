@@ -50,7 +50,9 @@ function cleanup(tempDir: string): void {
 function defaultRunResult(): TaskRunResult {
   return {
     testsResult: "PASS",
+    testLog: "ok",
     diffHash: "diff-sha",
+    hasDiff: true,
     agentLogs: ["ok"],
     agentMeta: { engine: "codex", protocol: "v1" },
     prLink: "https://github.com/org/name/pull/1"
@@ -209,6 +211,83 @@ test("service rejects invalid action with 400", async () => {
         return true;
       }
     );
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});
+
+test("tests failure transitions task to FAILED", async () => {
+  const ctx = setup({
+    testsResult: "FAIL",
+    testLog: "npm test failed",
+    diffHash: "diff-sha",
+    hasDiff: true,
+    agentLogs: ["log"],
+    agentMeta: {},
+    prLink: null
+  });
+  try {
+    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    const created = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "fix login 500"
+    });
+
+    await assert.rejects(
+      () => ctx.service.applyAction(created.task.taskId, "approve", "tg:1"),
+      (err: unknown) => {
+        assert.ok(err instanceof TaskServiceError);
+        assert.equal(err.statusCode, 500);
+        assert.match(err.message, /Tests failed/);
+        return true;
+      }
+    );
+
+    const task = ctx.service.getTask(created.task.taskId);
+    assert.equal(task.status, "FAILED");
+
+    const lines = fs
+      .readFileSync(ctx.auditPath, "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { eventType: string });
+    assert.deepEqual(lines.map((line) => line.eventType), ["REQUEST", "APPROVE", "RUN", "FAILED"]);
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});
+
+test("empty diff does not create PR and still completes when tests pass", async () => {
+  const ctx = setup({
+    testsResult: "PASS",
+    testLog: "ok",
+    diffHash: "empty-diff-sha",
+    hasDiff: false,
+    agentLogs: [],
+    agentMeta: {},
+    prLink: null
+  });
+  try {
+    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    const created = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "no-op"
+    });
+    const result = await ctx.service.applyAction(created.task.taskId, "approve", "tg:1");
+    assert.equal(result.task.status, "COMPLETED");
+
+    const lines = fs
+      .readFileSync(ctx.auditPath, "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { eventType: string });
+    assert.deepEqual(lines.map((line) => line.eventType), ["REQUEST", "APPROVE", "RUN"]);
   } finally {
     cleanup(ctx.tempDir);
   }

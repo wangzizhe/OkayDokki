@@ -184,6 +184,10 @@ export class TaskService {
             : undefined
       });
 
+      if (runResult.testsResult !== "PASS") {
+        throw new Error(`Tests failed. ${runResult.testLog || "See sandbox test logs."}`);
+      }
+
       if (runResult.prLink) {
         this.repo.transition(taskId, "PR_CREATED");
         this.audit.append({

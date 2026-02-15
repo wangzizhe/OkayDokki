@@ -19,12 +19,15 @@ export class TaskRunner {
     }
 
     const diffHash = createHash("sha256").update(sandboxResult.diff).digest("hex");
+    const hasDiff = sandboxResult.diff.trim().length > 0;
     const testsResult = sandboxResult.testExitCode === 0 ? "PASS" : "FAIL";
-    const prLink = await this.prCreator.createDraftPr(task);
+    const prLink = hasDiff ? await this.prCreator.createDraftPr(task) : null;
 
     return {
       testsResult,
+      testLog: sandboxResult.testLog,
       diffHash,
+      hasDiff,
       agentLogs: sandboxResult.agentLogs,
       agentMeta: sandboxResult.agentMeta,
       prLink

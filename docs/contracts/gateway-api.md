@@ -94,7 +94,9 @@ For `approve`, `run_result` may include:
 ```json
 {
   "testsResult": "PASS",
+  "testLog": "ok",
   "diffHash": "sha256",
+  "hasDiff": true,
   "agentLogs": ["..."],
   "agentMeta": {
     "engine": "codex",
@@ -109,4 +111,4 @@ Errors:
 - `400`: bad request body (including invalid `action`)
 - `404`: task not found
 - `409`: invalid state/action conflict
-- `500`: run failure
+- `500`: run failure (including test failure)
