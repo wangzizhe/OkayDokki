@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { config } from "../config.js";
 import { AuditRecord } from "../types.js";
 
 const AUDIT_VERSION = "1.0";
@@ -19,8 +18,8 @@ type AuditRecordInput = Omit<AuditRecord, "auditVersion"> & Partial<Pick<AuditRe
 export class AuditLogger {
   private readonly filePath: string;
 
-  constructor(filePath = config.auditLogPath) {
-    this.filePath = path.resolve(filePath);
+  constructor(filePath?: string) {
+    this.filePath = path.resolve(filePath ?? process.env.AUDIT_LOG_PATH ?? "./audit.jsonl");
   }
 
   append(record: AuditRecordInput): void {

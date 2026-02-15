@@ -58,6 +58,12 @@ npm run db:init
 npm run dev
 ```
 
+7. Run tests:
+
+```bash
+npm test
+```
+
 ## MVP Scope in This Repository
 
 - Task intake and persistence

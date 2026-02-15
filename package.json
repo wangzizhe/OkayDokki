@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "db:init": "tsx src/scripts/initDb.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --import tsx tests/**/*.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
@@ -23,4 +24,3 @@
     "typescript": "^5.8.2"
   }
 }
-

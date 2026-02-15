@@ -20,6 +20,7 @@
 - `WAIT_APPROVE_WRITE -> RUNNING`
 - `WAIT_APPROVE_WRITE -> FAILED`
 - `RUNNING -> PR_CREATED`
+- `RUNNING -> COMPLETED`
 - `RUNNING -> FAILED`
 - `PR_CREATED -> COMPLETED`
 - `PR_CREATED -> FAILED`
@@ -56,4 +57,3 @@
 - Approval is required before any run/apply behavior.
 - Missing repo snapshot blocks approval and keeps task in clarify flow.
 - All state changes must be auditable via JSONL events.
-
