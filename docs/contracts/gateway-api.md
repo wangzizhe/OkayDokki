@@ -112,3 +112,24 @@ Errors:
 - `404`: task not found
 - `409`: invalid state/action conflict
 - `500`: run failure (including test failure)
+
+Error response shape:
+
+```json
+{
+  "error": "Task not found: t404",
+  "error_code": "TASK_NOT_FOUND"
+}
+```
+
+Current `error_code` values:
+
+- `VALIDATION_ERROR`
+- `TASK_NOT_FOUND`
+- `INVALID_ACTION`
+- `STATE_CONFLICT`
+- `SNAPSHOT_MISSING`
+- `TEST_FAILED`
+- `AGENT_FAILED`
+- `SANDBOX_FAILED`
+- `RUN_FAILED`

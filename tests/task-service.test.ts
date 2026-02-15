@@ -6,7 +6,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { TaskRepository } from "../src/repositories/taskRepository.js";
 import { AuditLogger } from "../src/services/auditLogger.js";
-import { TaskRunner } from "../src/services/taskRunner.js";
+import { TaskRunner, TaskRunnerError } from "../src/services/taskRunner.js";
 import { TaskService, TaskServiceError } from "../src/services/taskService.js";
 import { TaskRunResult } from "../src/types.js";
 
@@ -144,6 +144,7 @@ test("retry returns 409 when snapshot is still missing", async () => {
       (err: unknown) => {
         assert.ok(err instanceof TaskServiceError);
         assert.equal(err.statusCode, 409);
+        assert.equal(err.code, "SNAPSHOT_MISSING");
         assert.match(err.message, /Snapshot still missing/);
         return true;
       }
@@ -171,6 +172,7 @@ test("approve failure transitions task to FAILED and logs FAILED event", async (
       (err: unknown) => {
         assert.ok(err instanceof TaskServiceError);
         assert.equal(err.statusCode, 500);
+        assert.equal(err.code, "RUN_FAILED");
         return true;
       }
     );
@@ -207,6 +209,7 @@ test("service rejects invalid action with 400", async () => {
       (err: unknown) => {
         assert.ok(err instanceof TaskServiceError);
         assert.equal(err.statusCode, 400);
+        assert.equal(err.code, "INVALID_ACTION");
         assert.match(err.message, /Invalid action/);
         return true;
       }
@@ -240,6 +243,7 @@ test("tests failure transitions task to FAILED", async () => {
       (err: unknown) => {
         assert.ok(err instanceof TaskServiceError);
         assert.equal(err.statusCode, 500);
+        assert.equal(err.code, "TEST_FAILED");
         assert.match(err.message, /Tests failed/);
         return true;
       }
@@ -255,6 +259,32 @@ test("tests failure transitions task to FAILED", async () => {
       .filter(Boolean)
       .map((line) => JSON.parse(line) as { eventType: string });
     assert.deepEqual(lines.map((line) => line.eventType), ["REQUEST", "APPROVE", "RUN", "FAILED"]);
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});
+
+test("runner sandbox failure maps to SANDBOX_FAILED", async () => {
+  const ctx = setup(async () => {
+    throw new TaskRunnerError("sandbox down", "SANDBOX_FAILED");
+  });
+  try {
+    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    const created = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "fix login 500"
+    });
+    await assert.rejects(
+      () => ctx.service.applyAction(created.task.taskId, "approve", "tg:1"),
+      (err: unknown) => {
+        assert.ok(err instanceof TaskServiceError);
+        assert.equal(err.statusCode, 500);
+        assert.equal(err.code, "SANDBOX_FAILED");
+        return true;
+      }
+    );
   } finally {
     cleanup(ctx.tempDir);
   }

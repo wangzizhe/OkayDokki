@@ -4,6 +4,7 @@ import { newTaskId } from "../utils/id.js";
 import { repoSnapshotExists, resolveRepoSnapshotPath } from "../utils/repoSnapshot.js";
 import { AuditLogger } from "./auditLogger.js";
 import { TaskRunner } from "./taskRunner.js";
+import { TaskRunnerError } from "./taskRunner.js";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -12,7 +13,17 @@ function nowIso(): string {
 export class TaskServiceError extends Error {
   constructor(
     message: string,
-    public readonly statusCode: number
+    public readonly statusCode: number,
+    public readonly code:
+      | "VALIDATION_ERROR"
+      | "TASK_NOT_FOUND"
+      | "INVALID_ACTION"
+      | "STATE_CONFLICT"
+      | "SNAPSHOT_MISSING"
+      | "TEST_FAILED"
+      | "AGENT_FAILED"
+      | "SANDBOX_FAILED"
+      | "RUN_FAILED"
   ) {
     super(message);
   }
@@ -91,7 +102,7 @@ export class TaskService {
   getTask(taskId: string): TaskSpec {
     const task = this.repo.get(taskId);
     if (!task) {
-      throw new TaskServiceError(`Task not found: ${taskId}`, 404);
+      throw new TaskServiceError(`Task not found: ${taskId}`, 404, "TASK_NOT_FOUND");
     }
     return task;
   }
@@ -100,7 +111,8 @@ export class TaskService {
     if (!isTaskAction(action)) {
       throw new TaskServiceError(
         `Invalid action: ${String(action)}. Expected one of: retry, approve, reject.`,
-        400
+        400,
+        "INVALID_ACTION"
       );
     }
 
@@ -110,7 +122,8 @@ export class TaskService {
       if (task.status !== "WAIT_CLARIFY") {
         throw new TaskServiceError(
           `Task ${taskId} is ${task.status}, retry is not available.`,
-          409
+          409,
+          "STATE_CONFLICT"
         );
       }
       const hasSnapshot = repoSnapshotExists(this.repoSnapshotRoot, task.repo);
@@ -118,7 +131,8 @@ export class TaskService {
         const expectedPath = resolveRepoSnapshotPath(this.repoSnapshotRoot, task.repo);
         throw new TaskServiceError(
           `Snapshot still missing for '${task.repo}'. Expected path: ${expectedPath}`,
-          409
+          409,
+          "SNAPSHOT_MISSING"
         );
       }
       const updated = this.repo.transition(taskId, "WAIT_APPROVE_WRITE");
@@ -136,7 +150,8 @@ export class TaskService {
       if (task.status !== "WAIT_CLARIFY" && task.status !== "WAIT_APPROVE_WRITE") {
         throw new TaskServiceError(
           `Task ${taskId} is ${task.status}, reject is only allowed in pending states.`,
-          409
+          409,
+          "STATE_CONFLICT"
         );
       }
       const updated = this.repo.transition(taskId, "FAILED");
@@ -154,7 +169,8 @@ export class TaskService {
     if (task.status !== "WAIT_APPROVE_WRITE") {
       throw new TaskServiceError(
         `Task ${taskId} is ${task.status}, only WAIT_APPROVE_WRITE can be approved.`,
-        409
+        409,
+        "STATE_CONFLICT"
       );
     }
 
@@ -185,7 +201,11 @@ export class TaskService {
       });
 
       if (runResult.testsResult !== "PASS") {
-        throw new Error(`Tests failed. ${runResult.testLog || "See sandbox test logs."}`);
+        throw new TaskServiceError(
+          `Tests failed. ${runResult.testLog || "See sandbox test logs."}`,
+          500,
+          "TEST_FAILED"
+        );
       }
 
       if (runResult.prLink) {
@@ -210,9 +230,20 @@ export class TaskService {
         eventType: "FAILED",
         message: err instanceof Error ? err.message : String(err)
       });
+      if (err instanceof TaskServiceError) {
+        throw err;
+      }
+      if (err instanceof TaskRunnerError) {
+        throw new TaskServiceError(
+          `Task ${taskId} failed: ${err.message}`,
+          500,
+          err.code
+        );
+      }
       throw new TaskServiceError(
         `Task ${taskId} failed: ${err instanceof Error ? err.message : String(err)}`,
-        500
+        500,
+        "RUN_FAILED"
       );
     }
   }

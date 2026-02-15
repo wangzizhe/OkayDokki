@@ -101,7 +101,10 @@ test("POST /tasks returns 400 for missing fields", async () => {
   });
 
   assert.equal(result.statusCode, 400);
-  assert.deepEqual(result.body, { error: "trigger_user is required" });
+  assert.deepEqual(result.body, {
+    error: "trigger_user is required",
+    error_code: "VALIDATION_ERROR"
+  });
 });
 
 test("POST /tasks returns created payload", async () => {
@@ -142,7 +145,7 @@ test("GET /tasks/:taskId maps service 404", async () => {
       needsClarify: false
     }),
     getTask: () => {
-      throw new TaskServiceError("Task not found: t404", 404);
+      throw new TaskServiceError("Task not found: t404", 404, "TASK_NOT_FOUND");
     },
     applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } })
   };
@@ -155,7 +158,7 @@ test("GET /tasks/:taskId maps service 404", async () => {
   });
 
   assert.equal(result.statusCode, 404);
-  assert.deepEqual(result.body, { error: "Task not found: t404" });
+  assert.deepEqual(result.body, { error: "Task not found: t404", error_code: "TASK_NOT_FOUND" });
 });
 
 test("POST /tasks/:taskId/actions maps service conflict", async () => {
@@ -166,7 +169,11 @@ test("POST /tasks/:taskId/actions maps service conflict", async () => {
     }),
     getTask: () => ({ taskId: "t1", status: "WAIT_APPROVE_WRITE" }),
     applyAction: async () => {
-      throw new TaskServiceError("Task t1 is WAIT_CLARIFY, retry is not available.", 409);
+      throw new TaskServiceError(
+        "Task t1 is WAIT_CLARIFY, retry is not available.",
+        409,
+        "STATE_CONFLICT"
+      );
     }
   };
   const router = createTaskRoutes(mock as never);
@@ -179,7 +186,10 @@ test("POST /tasks/:taskId/actions maps service conflict", async () => {
   });
 
   assert.equal(result.statusCode, 409);
-  assert.deepEqual(result.body, { error: "Task t1 is WAIT_CLARIFY, retry is not available." });
+  assert.deepEqual(result.body, {
+    error: "Task t1 is WAIT_CLARIFY, retry is not available.",
+    error_code: "STATE_CONFLICT"
+  });
 });
 
 test("POST /tasks/:taskId/actions returns 400 for invalid action", async () => {
@@ -201,5 +211,8 @@ test("POST /tasks/:taskId/actions returns 400 for invalid action", async () => {
   });
 
   assert.equal(result.statusCode, 400);
-  assert.deepEqual(result.body, { error: "action must be one of: retry, approve, reject" });
+  assert.deepEqual(result.body, {
+    error: "action must be one of: retry, approve, reject",
+    error_code: "VALIDATION_ERROR"
+  });
 });

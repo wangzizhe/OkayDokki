@@ -107,10 +107,13 @@ export class TaskGateway {
     } catch (err) {
       if (err instanceof TaskServiceError && err.statusCode === 500) {
         const taskId = data.split(":")[1];
-        await this.im.sendMessage(chatId, `Task ${taskId} failed.`);
+        await this.im.sendMessage(chatId, `Task ${taskId} failed. Code: ${err.code}`);
         return;
       }
-      await this.im.sendMessage(chatId, err instanceof Error ? err.message : "Callback handling failed.");
+      await this.im.sendMessage(
+        chatId,
+        err instanceof TaskServiceError ? `${err.message} (code: ${err.code})` : err instanceof Error ? err.message : "Callback handling failed."
+      );
     }
   }
 
@@ -123,4 +126,3 @@ export class TaskGateway {
     ]);
   }
 }
-

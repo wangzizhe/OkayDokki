@@ -14,7 +14,7 @@ type ActionBody = {
 };
 
 function badRequest(message: string): never {
-  throw new TaskServiceError(message, 400);
+  throw new TaskServiceError(message, 400, "VALIDATION_ERROR");
 }
 
 export function createTaskRoutes(service: TaskService): express.Router {
@@ -89,8 +89,8 @@ export function createTaskRoutes(service: TaskService): express.Router {
 
 function sendError(res: express.Response, err: unknown): void {
   if (err instanceof TaskServiceError) {
-    res.status(err.statusCode).json({ error: err.message });
+    res.status(err.statusCode).json({ error: err.message, error_code: err.code });
     return;
   }
-  res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
+  res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error", error_code: "UNKNOWN" });
 }
