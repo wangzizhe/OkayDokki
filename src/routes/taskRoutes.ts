@@ -61,6 +61,20 @@ export function createTaskRoutes(service: TaskService): express.Router {
     }
   });
 
+  router.get("/tasks", (req, res) => {
+    try {
+      const limitRaw = String(req.query.limit ?? "20");
+      const limit = Number(limitRaw);
+      if (!Number.isFinite(limit)) {
+        badRequest("limit must be a number");
+      }
+      const listed = service.listTasks(limit);
+      res.status(200).json(listed);
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
   router.post("/tasks/:taskId/actions", async (req, res) => {
     try {
       const body = req.body as ActionBody;
@@ -78,6 +92,24 @@ export function createTaskRoutes(service: TaskService): express.Router {
       res.status(200).json({
         task: result.task,
         run_result: result.runResult ?? null
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  router.post("/tasks/:taskId/rerun", (req, res) => {
+    try {
+      const body = req.body as { actor?: string };
+      if (!body.actor) {
+        badRequest("actor is required");
+      }
+      const rerun = service.rerunTask(req.params.taskId, body.actor, "api");
+      res.status(201).json({
+        task: rerun.task,
+        next_status: rerun.task.status,
+        needs_clarify: rerun.needsClarify,
+        expected_path: rerun.expectedPath ?? null
       });
     } catch (err) {
       sendError(res, err);

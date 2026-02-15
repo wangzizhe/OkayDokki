@@ -102,3 +102,35 @@ test("runner allows compliant diff and creates PR", async () => {
   assert.equal(result.prLink, "https://example.com/pr/42");
 });
 
+test("runner maps pr creator failures to PR_CREATE_FAILED", async () => {
+  const adapter = { buildCommand: () => "echo run" };
+  const sandbox = {
+    runTask: async () => ({
+      diff: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n",
+      agentLogs: [],
+      agentMeta: {},
+      agentExitCode: 0,
+      testExitCode: 0,
+      testLog: "ok"
+    })
+  };
+  const prCreator = {
+    createDraftPr: async () => {
+      throw new Error("gh missing");
+    }
+  };
+  const runner = new TaskRunner(adapter as never, sandbox as never, prCreator as never, {
+    blockedPathPrefixes: [],
+    maxChangedFiles: 10,
+    maxDiffBytes: 20000,
+    disallowBinaryPatch: true
+  });
+  await assert.rejects(
+    () => runner.run(task),
+    (err: unknown) => {
+      assert.ok(err instanceof TaskRunnerError);
+      assert.equal(err.code, "PR_CREATE_FAILED");
+      return true;
+    }
+  );
+});

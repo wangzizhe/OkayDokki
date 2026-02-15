@@ -33,6 +33,16 @@ type MockService = {
       prLink: string | null;
     };
   }>;
+  listTasks: (limit?: number) => { tasks: Array<{ taskId: string; status: string }> };
+  rerunTask: (
+    taskId: string,
+    actor: string,
+    source: "telegram" | "api"
+  ) => {
+    task: { taskId: string; status: string };
+    needsClarify: boolean;
+    expectedPath?: string;
+  };
 };
 
 type ResponseCapture = {
@@ -46,6 +56,7 @@ async function invokeRoute(params: {
   path: string;
   reqBody?: unknown;
   reqParams?: Record<string, string>;
+  reqQuery?: Record<string, string>;
 }): Promise<ResponseCapture> {
   const layer = params.router.stack.find((l) => {
     const route = (l as { route?: { path?: string; methods?: Record<string, boolean> } }).route;
@@ -77,7 +88,8 @@ async function invokeRoute(params: {
 
   const req = {
     body: params.reqBody ?? {},
-    params: params.reqParams ?? {}
+    params: params.reqParams ?? {},
+    query: params.reqQuery ?? {}
   } as express.Request;
 
   await layer.route.stack[0].handle(req, res);
@@ -90,7 +102,9 @@ test("POST /tasks returns 400 for missing fields", async () => {
       throw new Error("should not call");
     },
     getTask: () => ({ taskId: "t1", status: "WAIT_CLARIFY" }),
-    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_CLARIFY" } })
+    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_CLARIFY" } }),
+    listTasks: () => ({ tasks: [] }),
+    rerunTask: () => ({ task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" }, needsClarify: false })
   };
   const router = createTaskRoutes(mock as never);
   const result = await invokeRoute({
@@ -114,7 +128,9 @@ test("POST /tasks returns created payload", async () => {
       needsClarify: false
     }),
     getTask: () => ({ taskId: "t1", status: "WAIT_APPROVE_WRITE" }),
-    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } })
+    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } }),
+    listTasks: () => ({ tasks: [] }),
+    rerunTask: () => ({ task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" }, needsClarify: false })
   };
   const router = createTaskRoutes(mock as never);
   const result = await invokeRoute({
@@ -147,7 +163,9 @@ test("GET /tasks/:taskId maps service 404", async () => {
     getTask: () => {
       throw new TaskServiceError("Task not found: t404", 404, "TASK_NOT_FOUND");
     },
-    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } })
+    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } }),
+    listTasks: () => ({ tasks: [] }),
+    rerunTask: () => ({ task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" }, needsClarify: false })
   };
   const router = createTaskRoutes(mock as never);
   const result = await invokeRoute({
@@ -174,7 +192,9 @@ test("POST /tasks/:taskId/actions maps service conflict", async () => {
         409,
         "STATE_CONFLICT"
       );
-    }
+    },
+    listTasks: () => ({ tasks: [] }),
+    rerunTask: () => ({ task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" }, needsClarify: false })
   };
   const router = createTaskRoutes(mock as never);
   const result = await invokeRoute({
@@ -199,7 +219,9 @@ test("POST /tasks/:taskId/actions returns 400 for invalid action", async () => {
       needsClarify: false
     }),
     getTask: () => ({ taskId: "t1", status: "WAIT_APPROVE_WRITE" }),
-    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } })
+    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } }),
+    listTasks: () => ({ tasks: [] }),
+    rerunTask: () => ({ task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" }, needsClarify: false })
   };
   const router = createTaskRoutes(mock as never);
   const result = await invokeRoute({
@@ -214,5 +236,72 @@ test("POST /tasks/:taskId/actions returns 400 for invalid action", async () => {
   assert.deepEqual(result.body, {
     error: "action must be one of: retry, approve, reject",
     error_code: "VALIDATION_ERROR"
+  });
+});
+
+test("GET /tasks returns list payload", async () => {
+  const mock: MockService = {
+    createTask: () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" }, needsClarify: false }),
+    getTask: () => ({ taskId: "t1", status: "WAIT_APPROVE_WRITE" }),
+    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } }),
+    listTasks: () => ({ tasks: [{ taskId: "t1", status: "COMPLETED" }] }),
+    rerunTask: () => ({ task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" }, needsClarify: false })
+  };
+  const router = createTaskRoutes(mock as never);
+  const result = await invokeRoute({
+    router,
+    method: "get",
+    path: "/tasks",
+    reqBody: {},
+    reqParams: {}
+  });
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body, { tasks: [{ taskId: "t1", status: "COMPLETED" }] });
+});
+
+test("GET /tasks returns 400 when limit is invalid", async () => {
+  const mock: MockService = {
+    createTask: () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" }, needsClarify: false }),
+    getTask: () => ({ taskId: "t1", status: "WAIT_APPROVE_WRITE" }),
+    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } }),
+    listTasks: () => ({ tasks: [] }),
+    rerunTask: () => ({ task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" }, needsClarify: false })
+  };
+  const router = createTaskRoutes(mock as never);
+  const result = await invokeRoute({
+    router,
+    method: "get",
+    path: "/tasks",
+    reqQuery: { limit: "oops" }
+  });
+  assert.equal(result.statusCode, 400);
+  assert.deepEqual(result.body, { error: "limit must be a number", error_code: "VALIDATION_ERROR" });
+});
+
+test("POST /tasks/:taskId/rerun returns new task", async () => {
+  const mock: MockService = {
+    createTask: () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" }, needsClarify: false }),
+    getTask: () => ({ taskId: "t1", status: "WAIT_APPROVE_WRITE" }),
+    applyAction: async () => ({ task: { taskId: "t1", status: "WAIT_APPROVE_WRITE" } }),
+    listTasks: () => ({ tasks: [] }),
+    rerunTask: () => ({
+      task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" },
+      needsClarify: false
+    })
+  };
+  const router = createTaskRoutes(mock as never);
+  const result = await invokeRoute({
+    router,
+    method: "post",
+    path: "/tasks/:taskId/rerun",
+    reqBody: { actor: "tg:1" },
+    reqParams: { taskId: "t1" }
+  });
+  assert.equal(result.statusCode, 201);
+  assert.deepEqual(result.body, {
+    task: { taskId: "t2", status: "WAIT_APPROVE_WRITE" },
+    next_status: "WAIT_APPROVE_WRITE",
+    needs_clarify: false,
+    expected_path: null
   });
 });

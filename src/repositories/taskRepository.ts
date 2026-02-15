@@ -45,6 +45,13 @@ export class TaskRepository {
     return row ? this.toTask(row) : null;
   }
 
+  listRecent(limit: number): TaskSpec[] {
+    const rows = this.db
+      .prepare("SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?")
+      .all(limit) as TaskRow[];
+    return rows.map((row) => this.toTask(row));
+  }
+
   transition(taskId: string, nextStatus: TaskStatus, approvedBy?: string): TaskSpec {
     const current = this.get(taskId);
     if (!current) {
@@ -66,7 +73,7 @@ export class TaskRepository {
   private toTask(row: TaskRow): TaskSpec {
     return {
       taskId: row.task_id,
-      source: { im: row.source_im as "telegram" },
+      source: { im: row.source_im as "telegram" | "api" },
       triggerUser: row.trigger_user,
       repo: row.repo,
       branch: row.branch,

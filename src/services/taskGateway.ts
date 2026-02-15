@@ -13,6 +13,14 @@ function parseTaskCommand(text: string): { repo: string; intent: string } {
   return { repo, intent };
 }
 
+function parseRerunCommand(text: string): { taskId: string } {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length < 2 || !parts[1]) {
+    throw new Error("Usage: /rerun <task_id>");
+  }
+  return { taskId: parts[1] };
+}
+
 function parseAction(raw: string): { action: TaskAction; taskId: string } {
   const [prefix, taskId] = raw.split(":");
   if (!taskId) {
@@ -46,6 +54,10 @@ export class TaskGateway {
   }
 
   private async handleTask(chatId: string, userId: string, text: string): Promise<void> {
+    if (text.startsWith("/rerun")) {
+      await this.handleRerun(chatId, userId, text);
+      return;
+    }
     try {
       const parsed = parseTaskCommand(text);
       const result = this.service.createTask({
@@ -75,11 +87,46 @@ export class TaskGateway {
         chatId,
         `Task parsed: ${result.task.intent}\nStatus: WAIT_APPROVE_WRITE`
       );
+      await this.im.sendMessage(chatId, this.buildApprovalSummary(result.task.taskId));
       await this.sendApprovalButtons(chatId, result.task.taskId);
     } catch (err) {
       await this.im.sendMessage(
         chatId,
         err instanceof Error ? err.message : "Failed to parse task command."
+      );
+    }
+  }
+
+  private async handleRerun(chatId: string, userId: string, text: string): Promise<void> {
+    try {
+      const parsed = parseRerunCommand(text);
+      const rerun = this.service.rerunTask(parsed.taskId, `tg:${userId}`, "telegram");
+      if (rerun.needsClarify) {
+        await this.im.sendMessage(
+          chatId,
+          [
+            `Rerun created from: ${parsed.taskId}`,
+            `New task: ${rerun.task.taskId}`,
+            "Status: WAIT_CLARIFY",
+            `Missing repo snapshot for '${rerun.task.repo}'.`,
+            `Expected path: ${rerun.expectedPath ?? "n/a"}`,
+            "Prepare the snapshot, then tap Retry."
+          ].join("\n"),
+          [[{ text: "Retry", callbackData: `rty:${rerun.task.taskId}` }]]
+        );
+        return;
+      }
+
+      await this.im.sendMessage(
+        chatId,
+        `Rerun created from: ${parsed.taskId}\nNew task: ${rerun.task.taskId}\nStatus: WAIT_APPROVE_WRITE`
+      );
+      await this.im.sendMessage(chatId, this.buildApprovalSummary(rerun.task.taskId));
+      await this.sendApprovalButtons(chatId, rerun.task.taskId);
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof TaskServiceError ? `${err.message} (code: ${err.code})` : err instanceof Error ? err.message : "Failed to rerun task."
       );
     }
   }
@@ -91,6 +138,7 @@ export class TaskGateway {
 
       if (action === "retry") {
         await this.im.sendMessage(chatId, `Task ${taskId} moved to WAIT_APPROVE_WRITE.`);
+        await this.im.sendMessage(chatId, this.buildApprovalSummary(taskId));
         await this.sendApprovalButtons(chatId, taskId);
         return;
       }
@@ -124,5 +172,22 @@ export class TaskGateway {
         { text: "Reject", callbackData: `rej:${taskId}` }
       ]
     ]);
+  }
+
+  private buildApprovalSummary(taskId: string): string {
+    const task = this.service.getTask(taskId);
+    const blocked = config.blockedPathPrefixes.join(", ");
+    return [
+      "Approval summary:",
+      `- Task: ${task.taskId}`,
+      `- Repo: ${task.repo}`,
+      `- Branch: ${task.branch}`,
+      `- Intent: ${task.intent}`,
+      `- Test command: ${config.defaultTestCommand}`,
+      `- Blocked paths: ${blocked || "none"}`,
+      `- Max changed files: ${config.maxChangedFiles}`,
+      `- Max diff bytes: ${config.maxDiffBytes}`,
+      `- Binary patch allowed: ${config.disallowBinaryPatch ? "no" : "yes"}`
+    ].join("\n");
   }
 }

@@ -23,6 +23,7 @@ export class TaskServiceError extends Error {
       | "TEST_FAILED"
       | "AGENT_FAILED"
       | "SANDBOX_FAILED"
+      | "PR_CREATE_FAILED"
       | "POLICY_VIOLATION"
       | "RUN_FAILED"
   ) {
@@ -54,6 +55,10 @@ export interface CreateTaskResult {
 export interface ApplyActionResult {
   task: TaskSpec;
   runResult?: TaskRunResult;
+}
+
+export interface ListTasksResult {
+  tasks: TaskSpec[];
 }
 
 export class TaskService {
@@ -98,6 +103,25 @@ export class TaskService {
     }
 
     return { task, needsClarify: false };
+  }
+
+  listTasks(limit = 20): ListTasksResult {
+    const safeLimit = Number.isFinite(limit) ? limit : 20;
+    const capped = Math.max(1, Math.min(safeLimit, 100));
+    return {
+      tasks: this.repo.listRecent(capped)
+    };
+  }
+
+  rerunTask(taskId: string, actor: string, source: "telegram" | "api"): CreateTaskResult {
+    const original = this.getTask(taskId);
+    return this.createTask({
+      source,
+      triggerUser: actor,
+      repo: original.repo,
+      intent: original.intent,
+      agent: original.agent
+    });
   }
 
   getTask(taskId: string): TaskSpec {

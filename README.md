@@ -71,6 +71,7 @@ npm test
 - Missing snapshot guard (`WAIT_CLARIFY` before approval)
 - Retry button to move `WAIT_CLARIFY` -> `WAIT_APPROVE_WRITE` after snapshot is ready
 - Telegram callback flow (`Approve` / `Reject`)
+- Telegram rerun command (`/rerun <task_id>`)
 - Auditable JSONL event stream
 - Runner and adapter interfaces with safe defaults
 - Draft PR creation hook
@@ -109,12 +110,15 @@ npm test
 - Empty diff skips PR creation.
 - Test failure marks task as `FAILED`.
 - Diff policy gate blocks unsafe PR candidates (blocked paths, binary patches, oversized diffs).
+- Approval step includes a concise policy summary before `Approve`.
 
 ## Internal API
 
 - `POST /api/v1/tasks`
+- `GET /api/v1/tasks`
 - `GET /api/v1/tasks/:taskId`
 - `POST /api/v1/tasks/:taskId/actions`
+- `POST /api/v1/tasks/:taskId/rerun`
 - `GET /api/v1/health/details`
 
 Contracts:

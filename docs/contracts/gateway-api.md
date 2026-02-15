@@ -90,6 +90,21 @@ Response `200`:
 
 If task does not exist: `404`.
 
+## 2.1) List Tasks
+
+`GET /tasks?limit=20`
+
+Response `200`:
+
+```json
+{
+  "tasks": [
+    { "taskId": "uuid-1", "status": "FAILED" },
+    { "taskId": "uuid-2", "status": "WAIT_APPROVE_WRITE" }
+  ]
+}
+```
+
 ## 3) Apply Action
 
 `POST /tasks/:taskId/actions`
@@ -164,5 +179,32 @@ Current `error_code` values:
 - `TEST_FAILED`
 - `AGENT_FAILED`
 - `SANDBOX_FAILED`
+- `PR_CREATE_FAILED`
 - `POLICY_VIOLATION`
 - `RUN_FAILED`
+
+## 4) Rerun Task
+
+`POST /tasks/:taskId/rerun`
+
+Request body:
+
+```json
+{
+  "actor": "tg:12345"
+}
+```
+
+Response `201`:
+
+```json
+{
+  "task": {
+    "taskId": "new-uuid",
+    "status": "WAIT_APPROVE_WRITE"
+  },
+  "next_status": "WAIT_APPROVE_WRITE",
+  "needs_clarify": false,
+  "expected_path": null
+}
+```

@@ -292,6 +292,32 @@ test("runner sandbox failure maps to SANDBOX_FAILED", async () => {
   }
 });
 
+test("runner pr creation failure maps to PR_CREATE_FAILED", async () => {
+  const ctx = setup(async () => {
+    throw new TaskRunnerError("pr creation failed", "PR_CREATE_FAILED");
+  });
+  try {
+    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    const created = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "fix login 500"
+    });
+    await assert.rejects(
+      () => ctx.service.applyAction(created.task.taskId, "approve", "tg:1"),
+      (err: unknown) => {
+        assert.ok(err instanceof TaskServiceError);
+        assert.equal(err.statusCode, 500);
+        assert.equal(err.code, "PR_CREATE_FAILED");
+        return true;
+      }
+    );
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});
+
 test("empty diff does not create PR and still completes when tests pass", async () => {
   const ctx = setup({
     testsResult: "PASS",
@@ -320,6 +346,51 @@ test("empty diff does not create PR and still completes when tests pass", async 
       .filter(Boolean)
       .map((line) => JSON.parse(line) as { eventType: string });
     assert.deepEqual(lines.map((line) => line.eventType), ["REQUEST", "APPROVE", "RUN"]);
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});
+
+test("listTasks returns recent tasks", () => {
+  const ctx = setup(defaultRunResult());
+  try {
+    const first = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "first"
+    });
+    const second = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "second"
+    });
+    const listed = ctx.service.listTasks(10);
+    assert.equal(listed.tasks.length >= 2, true);
+    const ids = listed.tasks.map((task) => task.taskId);
+    assert.equal(ids.includes(first.task.taskId), true);
+    assert.equal(ids.includes(second.task.taskId), true);
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});
+
+test("rerunTask clones intent/repo from original task", () => {
+  const ctx = setup(defaultRunResult());
+  try {
+    const original = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "fix login 500"
+    });
+    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    const rerun = ctx.service.rerunTask(original.task.taskId, "tg:2", "api");
+    assert.equal(rerun.task.taskId !== original.task.taskId, true);
+    assert.equal(rerun.task.repo, original.task.repo);
+    assert.equal(rerun.task.intent, original.task.intent);
+    assert.equal(rerun.task.triggerUser, "tg:2");
   } finally {
     cleanup(ctx.tempDir);
   }

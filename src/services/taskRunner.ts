@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { AgentAdapter } from "../adapters/agent/agentAdapter.js";
 import { TaskRunResult, TaskSpec } from "../types.js";
-import { PrCreator } from "./prCreator.js";
+import { PrCreator, PrCreatorError } from "./prCreator.js";
 import { DockerSandbox } from "./dockerSandbox.js";
 import { DiffPolicyOptions, evaluateDiffPolicy } from "./diffPolicy.js";
 
 export type TaskRunnerErrorCode =
   | "SANDBOX_FAILED"
   | "AGENT_FAILED"
-  | "POLICY_VIOLATION";
+  | "POLICY_VIOLATION"
+  | "PR_CREATE_FAILED";
 
 export class TaskRunnerError extends Error {
   constructor(
@@ -58,7 +59,15 @@ export class TaskRunner {
       }
     }
     const testsResult = sandboxResult.testExitCode === 0 ? "PASS" : "FAIL";
-    const prLink = hasDiff ? await this.prCreator.createDraftPr(task) : null;
+    let prLink: string | null = null;
+    if (hasDiff) {
+      try {
+        prLink = await this.prCreator.createDraftPr(task);
+      } catch (err) {
+        const msg = err instanceof PrCreatorError ? err.message : String(err);
+        throw new TaskRunnerError(`Draft PR creation failed: ${msg}`, "PR_CREATE_FAILED");
+      }
+    }
 
     return {
       testsResult,

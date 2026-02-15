@@ -4,8 +4,10 @@ import { TaskSpec } from "../types.js";
 
 const execFileAsync = promisify(execFile);
 
+export class PrCreatorError extends Error {}
+
 export class PrCreator {
-  async createDraftPr(task: TaskSpec): Promise<string | null> {
+  async createDraftPr(task: TaskSpec): Promise<string> {
     const title = `chore(agent): ${task.intent}`;
     const body = [
       "Automated by OkayDokki.",
@@ -26,10 +28,14 @@ export class PrCreator {
         "--head",
         task.branch
       ]);
-      return stdout.trim() || null;
-    } catch {
-      return null;
+      const link = stdout.trim();
+      if (!link) {
+        throw new PrCreatorError("gh pr create returned empty output");
+      }
+      return link;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new PrCreatorError(`gh pr create failed: ${message}`);
     }
   }
 }
-
