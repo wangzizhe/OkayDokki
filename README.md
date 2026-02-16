@@ -52,13 +52,19 @@ npm install
 npm run db:init
 ```
 
-6. Start service:
+6. Run preflight checks:
+
+```bash
+npm run preflight
+```
+
+7. Start service:
 
 ```bash
 npm run dev
 ```
 
-7. Run tests:
+8. Run tests:
 
 ```bash
 npm test
