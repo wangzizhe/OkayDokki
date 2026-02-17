@@ -25,14 +25,24 @@ All actions are auditable by design with strict default safety boundaries (read-
 ## Task State Machine
 
 ```text
-CREATED
-  -> WAIT_CLARIFY
+WAIT_CLARIFY
   -> WAIT_APPROVE_WRITE
+  -> FAILED
+WAIT_APPROVE_WRITE
   -> RUNNING
+  -> FAILED
+RUNNING
   -> PR_CREATED
   -> COMPLETED
   -> FAILED
+PR_CREATED
+  -> COMPLETED
+  -> FAILED
 ```
+
+Note:
+
+- `CREATED` exists as a conceptual state in design docs; current runtime creates tasks directly as `WAIT_CLARIFY` or `WAIT_APPROVE_WRITE`.
 
 ## Quick Start
 
@@ -70,6 +80,16 @@ npm run dev
 npm test
 ```
 
+## Fast Start (Tomorrow)
+
+```bash
+npm run preflight
+npm run db:init
+npm run dev
+curl -s http://localhost:3000/api/v1/health/details | jq
+# Then send /task in Telegram
+```
+
 ## MVP Scope in This Repository
 
 - Task intake and persistence
@@ -93,14 +113,12 @@ npm test
 ## Sandbox Notes
 
 - Agent command is configured by `AGENT_CLI_TEMPLATE`.
-- Example template for Codex CLI:
+- Recommended style:
+  - use injected `$OKD_*` environment variables directly in the command.
+- Example:
   - `codex exec --task "$OKD_INTENT"`
-- Template variables:
-  - `{{task_id}}`
-  - `{{intent}}`
-  - `{{repo}}`
-  - `{{branch}}`
-  - `{{trigger_user}}`
+- Backward-compatible placeholder tokens are also supported:
+  - `{{task_id}}`, `{{intent}}`, `{{repo}}`, `{{branch}}`, `{{trigger_user}}`
 - Runtime environment variables injected by runner:
   - `OKD_TASK_ID`
   - `OKD_REPO`
@@ -117,6 +135,20 @@ npm test
 - Test failure marks task as `FAILED`.
 - Diff policy gate blocks unsafe PR candidates (blocked paths, binary patches, oversized diffs).
 - Approval step includes a concise policy summary before `Approve`.
+
+## Error Codes
+
+Common `error_code` values you will see during integration:
+
+- `SNAPSHOT_MISSING`
+- `POLICY_VIOLATION`
+- `TEST_FAILED`
+- `PR_CREATE_FAILED`
+- `SANDBOX_FAILED`
+
+Full list and API error schema:
+
+- `docs/contracts/gateway-api.md`
 
 ## Internal API
 
