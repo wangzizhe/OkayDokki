@@ -138,6 +138,7 @@ Runbooks:
 
 - `docs/runbook-live-test.md`
 - `docs/runbook-api-smoke.md`
+- `docs/checklist-live-integration.md`
 
 ## CI
 
