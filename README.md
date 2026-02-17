@@ -134,6 +134,11 @@ Contracts:
 - `docs/contracts/agent-adapter.md`
 - `docs/contracts/audit-log.md`
 
+Runbooks:
+
+- `docs/runbook-live-test.md`
+- `docs/runbook-api-smoke.md`
+
 ## CI
 
 Minimal CI is enabled via GitHub Actions:
