@@ -69,7 +69,7 @@ export class TaskRunner {
     let prLink: string | null = null;
     if (hasDiff) {
       try {
-        prLink = await this.prCreator.createDraftPr(task);
+        prLink = await this.prCreator.createDraftPr(task, hostResult.candidatePath);
       } catch (err) {
         hostResult.cleanup();
         const msg = err instanceof PrCreatorError ? err.message : String(err);

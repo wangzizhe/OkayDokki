@@ -28,7 +28,7 @@ async function main(): Promise<void> {
     allowedTestCommands: config.allowedTestCommands,
     defaultTestCommand: config.defaultTestCommand
   });
-  const prCreator = new PrCreator();
+  const prCreator = new PrCreator(config.repoSnapshotRoot);
   const runner = new TaskRunner(agent, hostExecutor, sandbox, prCreator, {
     blockedPathPrefixes: config.blockedPathPrefixes,
     maxChangedFiles: config.maxChangedFiles,
