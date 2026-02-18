@@ -13,6 +13,7 @@ import { TaskService } from "./services/taskService.js";
 import { createTaskRoutes } from "./routes/taskRoutes.js";
 import { getHealthDetails } from "./services/health.js";
 import { HostAgentExecutor } from "./services/hostAgentExecutor.js";
+import { ChatService } from "./services/chatService.js";
 
 async function main(): Promise<void> {
   const db = createDb();
@@ -37,7 +38,10 @@ async function main(): Promise<void> {
   });
   const taskService = new TaskService(repo, audit, runner, config.repoSnapshotRoot);
   const telegram = new TelegramAdapter(config.telegramBotToken, config.telegramWebhookSecret);
-  const gateway = new TaskGateway(telegram, taskService);
+  const chatService = new ChatService(
+    ChatService.deriveCliBinary(config.agentCliTemplate, config.chatCliBin)
+  );
+  const gateway = new TaskGateway(telegram, taskService, chatService);
 
   gateway.bindHandlers();
 

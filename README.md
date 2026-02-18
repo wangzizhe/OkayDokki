@@ -178,6 +178,12 @@ curl -s http://localhost:3000/api/v1/health/details | jq
   - set `BASE_URL` and `TELEGRAM_WEBHOOK_SECRET`
   - endpoint path: `/webhook/telegram`
 
+## Telegram Commands
+
+- `/task ...`: create an executable task (approval required before write/run).
+- `/rerun <task_id>`: rerun a previous task as a new task.
+- `/chat ...`: chat-only mode for ideation/planning (no task state transition, no PR).
+
 ## Agent Auth Modes
 
 - `session` (default, recommended for self-hosted):
@@ -189,6 +195,11 @@ curl -s http://localhost:3000/api/v1/health/details | jq
   - useful for centralized team deployment
 
 See `docs/provider-auth.md` for setup details.
+
+Chat mode notes:
+
+- `/chat` uses local CLI in read-only sandbox mode.
+- You can override chat CLI binary via `CHAT_CLI_BIN`.
 
 ## MVP Scope in This Repository
 

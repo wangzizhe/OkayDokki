@@ -1,6 +1,7 @@
 import { IMAdapter } from "../adapters/im/imAdapter.js";
 import { config } from "../config.js";
 import { TaskAction, TaskService, TaskServiceError } from "./taskService.js";
+import { ChatService } from "./chatService.js";
 
 function parseTaskCommand(text: string): { repo: string; intent: string } {
   const trimmed = text.trim();
@@ -19,6 +20,14 @@ function parseRerunCommand(text: string): { taskId: string } {
     throw new Error("Usage: /rerun <task_id>");
   }
   return { taskId: parts[1] };
+}
+
+function parseChatCommand(text: string): { prompt: string } {
+  const prompt = text.replace(/^\/chat/, "").trim();
+  if (!prompt) {
+    throw new Error("Prompt is required. Example: /chat How should I refactor auth middleware?");
+  }
+  return { prompt };
 }
 
 function parseAction(raw: string): { action: TaskAction; taskId: string } {
@@ -41,7 +50,8 @@ function parseAction(raw: string): { action: TaskAction; taskId: string } {
 export class TaskGateway {
   constructor(
     private readonly im: IMAdapter,
-    private readonly service: TaskService
+    private readonly service: TaskService,
+    private readonly chat: ChatService
   ) {}
 
   bindHandlers(): void {
@@ -54,6 +64,11 @@ export class TaskGateway {
   }
 
   private async handleTask(chatId: string, userId: string, text: string): Promise<void> {
+    if (text.startsWith("/chat")) {
+      await this.handleChat(chatId, userId, text);
+      return;
+    }
+
     if (text.startsWith("/rerun")) {
       await this.handleRerun(chatId, userId, text);
       return;
@@ -93,6 +108,31 @@ export class TaskGateway {
       await this.im.sendMessage(
         chatId,
         err instanceof Error ? err.message : "Failed to parse task command."
+      );
+    }
+  }
+
+  private async handleChat(chatId: string, userId: string, text: string): Promise<void> {
+    try {
+      const parsed = parseChatCommand(text);
+      await this.im.sendMessage(chatId, "Chat accepted. Thinking...");
+      void this.handleChatAsync(chatId, userId, parsed.prompt);
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof Error ? err.message : "Failed to parse chat command."
+      );
+    }
+  }
+
+  private async handleChatAsync(chatId: string, userId: string, prompt: string): Promise<void> {
+    try {
+      const response = await this.chat.ask(prompt);
+      await this.im.sendMessage(chatId, response);
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        `Chat failed for tg:${userId}. ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }

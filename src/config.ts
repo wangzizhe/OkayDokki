@@ -69,6 +69,7 @@ export const config = {
     "printf 'agent placeholder for %s\\n' \"$OKD_INTENT\" && touch .okaydokki-agent && printf '{\"engine\":\"codex\",\"protocol\":\"v1\"}\\n' > \"$OKD_OUTDIR/agent.meta.json\"",
   agentAuthMode,
   agentSessionCheckCmd: process.env.AGENT_SESSION_CHECK_CMD ?? "",
+  chatCliBin: process.env.CHAT_CLI_BIN ?? "",
   telegramMode,
   telegramBotToken: required("TELEGRAM_BOT_TOKEN"),
   telegramWebhookSecret:
