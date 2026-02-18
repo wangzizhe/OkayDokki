@@ -181,6 +181,7 @@ curl -s http://localhost:3000/api/v1/health/details | jq
 ## Telegram Commands
 
 - `/task ...`: create an executable task (approval required before write/run).
+- If `/task` omits `strategy=...`, bot asks via inline buttons (`Rolling` / `Isolated`).
 - `/task status <task_id>`: quick task status lookup.
 - `/last`: show latest task summary.
 - `/rerun <task_id>`: rerun a previous task as a new task.

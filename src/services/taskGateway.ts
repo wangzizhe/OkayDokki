@@ -7,8 +7,9 @@ import { TaskAction, TaskService, TaskServiceError } from "./taskService.js";
 function parseTaskCommand(text: string): {
   repo: string;
   intent: string;
-  deliveryStrategy: DeliveryStrategy;
+  deliveryStrategy?: DeliveryStrategy;
   baseBranch: string;
+  strategySpecified: boolean;
 } {
   const trimmed = text.trim();
   const repoMatch = trimmed.match(/repo=([^\s]+)/);
@@ -16,6 +17,7 @@ function parseTaskCommand(text: string): {
   const baseMatch = trimmed.match(/base=([^\s]+)/);
 
   const repo = repoMatch?.[1] ?? config.defaultRepo;
+  const strategySpecified = Boolean(strategyMatch?.[1]);
   const strategyRaw = (strategyMatch?.[1] ?? config.deliveryStrategy).toLowerCase();
   if (strategyRaw !== "rolling" && strategyRaw !== "isolated") {
     throw new Error("Invalid strategy. Use strategy=rolling or strategy=isolated.");
@@ -32,7 +34,13 @@ function parseTaskCommand(text: string): {
       "Intent is required. Example: /task repo=okd-sandbox strategy=rolling fix login 500"
     );
   }
-  return { repo, intent, deliveryStrategy: strategyRaw, baseBranch };
+  return {
+    repo,
+    intent,
+    deliveryStrategy: strategyRaw,
+    baseBranch,
+    strategySpecified
+  };
 }
 
 function parseTaskStatusCommand(text: string): { taskId: string } {
@@ -80,25 +88,39 @@ function parseChatCommand(text: string): { repo: string; prompt: string; reset: 
   return { repo, prompt, reset: false, cancel: false };
 }
 
-function parseAction(raw: string): { action: TaskAction; taskId: string } {
-  const [prefix, taskId] = raw.split(":");
-  if (!taskId) {
+type CallbackAction =
+  | { kind: "task_action"; action: TaskAction; taskId: string }
+  | { kind: "select_strategy"; strategy: DeliveryStrategy; draftId: string };
+
+function parseAction(raw: string): CallbackAction {
+  const [prefix, value] = raw.split(":");
+  if (!value) {
     throw new Error("Invalid callback payload.");
   }
   if (prefix === "rty") {
-    return { action: "retry", taskId };
+    return { kind: "task_action", action: "retry", taskId: value };
   }
   if (prefix === "apv") {
-    return { action: "approve", taskId };
+    return { kind: "task_action", action: "approve", taskId: value };
   }
   if (prefix === "rej") {
-    return { action: "reject", taskId };
+    return { kind: "task_action", action: "reject", taskId: value };
+  }
+  if (prefix === "tsr") {
+    return { kind: "select_strategy", strategy: "rolling", draftId: value };
+  }
+  if (prefix === "tsi") {
+    return { kind: "select_strategy", strategy: "isolated", draftId: value };
   }
   throw new Error(`Unsupported callback: ${prefix}`);
 }
 
 export class TaskGateway {
   private readonly runningApprovals = new Set<string>();
+  private readonly pendingTaskDrafts = new Map<
+    string,
+    { chatId: string; userId: string; repo: string; intent: string; baseBranch: string }
+  >();
 
   constructor(
     private readonly im: IMAdapter,
@@ -136,43 +158,78 @@ export class TaskGateway {
 
     try {
       const parsed = parseTaskCommand(text);
-      const result = this.service.createTask({
-        source: "telegram",
-        triggerUser: `tg:${userId}`,
-        repo: parsed.repo,
-        intent: parsed.intent,
-        agent: "codex",
-        deliveryStrategy: parsed.deliveryStrategy,
-        baseBranch: parsed.baseBranch
-      });
-
-      if (result.needsClarify) {
+      if (!parsed.strategySpecified) {
+        const draftId = newDraftId();
+        this.pendingTaskDrafts.set(draftId, {
+          chatId,
+          userId: `tg:${userId}`,
+          repo: parsed.repo,
+          intent: parsed.intent,
+          baseBranch: parsed.baseBranch
+        });
         await this.im.sendMessage(
           chatId,
           [
-            `Task parsed: ${result.task.intent}`,
-            "Status: WAIT_CLARIFY",
-            `Missing repo snapshot for '${result.task.repo}'.`,
-            `Expected path: ${result.expectedPath ?? "n/a"}`,
-            "Prepare the snapshot, then tap Retry."
+            `Task parsed: ${parsed.intent}`,
+            `Repo: ${parsed.repo}`,
+            `Base branch: ${parsed.baseBranch}`,
+            "Choose delivery strategy:"
           ].join("\n"),
-          [[{ text: "Retry", callbackData: `rty:${result.task.taskId}` }]]
+          [[
+            { text: "Rolling", callbackData: `tsr:${draftId}` },
+            { text: "Isolated", callbackData: `tsi:${draftId}` }
+          ]]
         );
         return;
       }
-
-      await this.im.sendMessage(
-        chatId,
-        `Task parsed: ${result.task.intent}\nStatus: WAIT_APPROVE_WRITE`
-      );
-      await this.im.sendMessage(chatId, this.buildApprovalSummary(result.task.taskId));
-      await this.sendApprovalButtons(chatId, result.task.taskId);
+      await this.createAndPresentTask(chatId, `tg:${userId}`, parsed.repo, parsed.intent, parsed.deliveryStrategy, parsed.baseBranch);
     } catch (err) {
       await this.im.sendMessage(
         chatId,
         err instanceof Error ? err.message : "Failed to parse task command."
       );
     }
+  }
+
+  private async createAndPresentTask(
+    chatId: string,
+    triggerUser: string,
+    repo: string,
+    intent: string,
+    deliveryStrategy: DeliveryStrategy | undefined,
+    baseBranch: string
+  ): Promise<void> {
+    const result = this.service.createTask({
+      source: "telegram",
+      triggerUser,
+      repo,
+      intent,
+      agent: "codex",
+      deliveryStrategy,
+      baseBranch
+    });
+
+    if (result.needsClarify) {
+      await this.im.sendMessage(
+        chatId,
+        [
+          `Task parsed: ${result.task.intent}`,
+          "Status: WAIT_CLARIFY",
+          `Missing repo snapshot for '${result.task.repo}'.`,
+          `Expected path: ${result.expectedPath ?? "n/a"}`,
+          "Prepare the snapshot, then tap Retry."
+        ].join("\n"),
+        [[{ text: "Retry", callbackData: `rty:${result.task.taskId}` }]]
+      );
+      return;
+    }
+
+    await this.im.sendMessage(
+      chatId,
+      `Task parsed: ${result.task.intent}\nStatus: WAIT_APPROVE_WRITE`
+    );
+    await this.im.sendMessage(chatId, this.buildApprovalSummary(result.task.taskId));
+    await this.sendApprovalButtons(chatId, result.task.taskId);
   }
 
   private async handleTaskStatus(chatId: string, text: string): Promise<void> {
@@ -300,7 +357,30 @@ export class TaskGateway {
 
   private async handleCallback(chatId: string, userId: string, data: string): Promise<void> {
     try {
-      const { action, taskId } = parseAction(data);
+      const parsed = parseAction(data);
+      if (parsed.kind === "select_strategy") {
+        const draft = this.pendingTaskDrafts.get(parsed.draftId);
+        if (!draft) {
+          await this.im.sendMessage(chatId, "Strategy selection expired. Please send /task again.");
+          return;
+        }
+        if (draft.chatId !== chatId || draft.userId !== `tg:${userId}`) {
+          await this.im.sendMessage(chatId, "This strategy selection is not owned by your session.");
+          return;
+        }
+        this.pendingTaskDrafts.delete(parsed.draftId);
+        await this.createAndPresentTask(
+          chatId,
+          draft.userId,
+          draft.repo,
+          draft.intent,
+          parsed.strategy,
+          draft.baseBranch
+        );
+        return;
+      }
+
+      const { action, taskId } = parsed;
       if (action === "approve") {
         if (this.runningApprovals.has(taskId)) {
           await this.im.sendMessage(chatId, `Task ${taskId} is already running.`);
@@ -327,7 +407,7 @@ export class TaskGateway {
       }
     } catch (err) {
       if (err instanceof TaskServiceError && err.statusCode === 500) {
-        const taskId = data.split(":")[1];
+        const taskId = data.split(":")[1] ?? "";
         await this.im.sendMessage(
           chatId,
           `Task ${taskId} failed. Code: ${err.code}\nHint: ${this.failureHint(err.code)}`
@@ -412,4 +492,8 @@ export class TaskGateway {
     };
     return hints[code] ?? "Check audit log for details.";
   }
+}
+
+function newDraftId(): string {
+  return Math.random().toString(36).slice(2, 10);
 }
