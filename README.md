@@ -103,13 +103,8 @@ npm run dev
 - Contracts:
   - `docs/contracts/task-lifecycle.md`
   - `docs/contracts/gateway-api.md`
-  - `docs/contracts/agent-adapter.md`
-  - `docs/contracts/audit-log.md`
 - Runbooks:
   - `docs/runbook-live-test.md`
-  - `docs/runbook-api-smoke.md`
-- Checklist:
-  - `docs/checklist-live-integration.md`
 - Provider auth:
   - `docs/provider-auth.md`
 

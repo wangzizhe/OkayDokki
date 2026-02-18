@@ -1,6 +1,6 @@
-# Live Test Runbook
+# Live Test Runbook (Single Reference)
 
-This runbook is for first live integration of Telegram + agent command + draft PR flow.
+This is the single runbook for first live integration of Telegram + agent + draft PR flow.
 
 ## 0) Preconditions
 
@@ -40,13 +40,50 @@ curl -s http://localhost:3000/api/v1/health/details | jq
 
 ## 3) API Smoke (before Telegram)
 
-Use `docs/runbook-api-smoke.md` for ready-to-run `curl` commands.
+Set base URL:
 
-Validate:
+```bash
+export OKD_BASE_URL="http://localhost:3000"
+```
 
-1. `POST /api/v1/tasks` creates task.
-2. `GET /api/v1/tasks/:taskId` returns expected status.
-3. `POST /api/v1/tasks/:taskId/actions` with `approve` advances or fails with structured `error_code`.
+Health:
+
+```bash
+curl -s "$OKD_BASE_URL/healthz"
+curl -s "$OKD_BASE_URL/api/v1/health/details" | jq
+```
+
+Create one task:
+
+```bash
+CREATE_RES=$(curl -s -X POST "$OKD_BASE_URL/api/v1/tasks" \
+  -H "content-type: application/json" \
+  -d '{
+    "trigger_user":"api:smoke",
+    "repo":"okd-sandbox",
+    "intent":"smoke: append one line to README",
+    "agent":"codex"
+  }')
+
+echo "$CREATE_RES" | jq
+TASK_ID=$(echo "$CREATE_RES" | jq -r '.task.taskId')
+echo "$TASK_ID"
+```
+
+Check status:
+
+```bash
+curl -s "$OKD_BASE_URL/api/v1/tasks/$TASK_ID" | jq
+curl -s "$OKD_BASE_URL/api/v1/tasks?limit=10" | jq
+```
+
+Approve:
+
+```bash
+curl -s -X POST "$OKD_BASE_URL/api/v1/tasks/$TASK_ID/actions" \
+  -H "content-type: application/json" \
+  -d '{"action":"approve","actor":"api:smoke"}' | jq
+```
 
 ## 4) Telegram Live Flow
 
@@ -95,3 +132,13 @@ Failure event:
 
 5. `TEST_FAILED`
 - Open test log in audit context and fix failing tests.
+
+## 7) Quick Checklist
+
+- [ ] `.env` configured from `.env.example`
+- [ ] `npm run preflight` has `FAIL = 0`
+- [ ] `npm run db:init` succeeds
+- [ ] `npm run dev` is running
+- [ ] `/task ...` creates task message
+- [ ] approve/reject buttons work
+- [ ] audit log records `REQUEST/APPROVE/RUN` (+ `PR_CREATED` when applicable)

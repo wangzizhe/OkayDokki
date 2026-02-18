@@ -57,3 +57,18 @@
 - Approval is required before any run/apply behavior.
 - Missing repo snapshot blocks approval and keeps task in clarify flow.
 - All state changes must be auditable via JSONL events.
+
+## Audit Event Types (MVP)
+
+- Task flow:
+  - `REQUEST`
+  - `RETRY`
+  - `APPROVE`
+  - `REJECT`
+  - `RUN`
+  - `PR_CREATED`
+  - `FAILED`
+- Chat flow:
+  - `CHAT_REQUEST`
+  - `CHAT_RESPONSE`
+  - `CHAT_FAILED`
