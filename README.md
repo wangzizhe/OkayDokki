@@ -183,6 +183,7 @@ curl -s http://localhost:3000/api/v1/health/details | jq
 - `/task ...`: create an executable task (approval required before write/run).
 - `/rerun <task_id>`: rerun a previous task as a new task.
 - `/chat ...`: chat-only mode for ideation/planning (no task state transition, no PR).
+- `/chat repo=<repo> ...`: chat against a specific repo snapshot context.
 
 ## Agent Auth Modes
 

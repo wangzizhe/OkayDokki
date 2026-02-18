@@ -39,7 +39,8 @@ async function main(): Promise<void> {
   const taskService = new TaskService(repo, audit, runner, config.repoSnapshotRoot);
   const telegram = new TelegramAdapter(config.telegramBotToken, config.telegramWebhookSecret);
   const chatService = new ChatService(
-    ChatService.deriveCliBinary(config.agentCliTemplate, config.chatCliBin)
+    ChatService.deriveCliBinary(config.agentCliTemplate, config.chatCliBin),
+    config.repoSnapshotRoot
   );
   const gateway = new TaskGateway(telegram, taskService, chatService);
 

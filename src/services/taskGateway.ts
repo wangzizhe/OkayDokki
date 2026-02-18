@@ -22,12 +22,17 @@ function parseRerunCommand(text: string): { taskId: string } {
   return { taskId: parts[1] };
 }
 
-function parseChatCommand(text: string): { prompt: string } {
-  const prompt = text.replace(/^\/chat/, "").trim();
+function parseChatCommand(text: string): { repo: string; prompt: string } {
+  const trimmed = text.trim();
+  const repoMatch = trimmed.match(/repo=([^\s]+)/);
+  const repo = repoMatch?.[1] ?? config.defaultRepo;
+  const prompt = trimmed.replace(/^\/chat/, "").replace(/repo=[^\s]+/, "").trim();
   if (!prompt) {
-    throw new Error("Prompt is required. Example: /chat How should I refactor auth middleware?");
+    throw new Error(
+      "Prompt is required. Example: /chat repo=okd-sandbox How should I refactor auth middleware?"
+    );
   }
-  return { prompt };
+  return { repo, prompt };
 }
 
 function parseAction(raw: string): { action: TaskAction; taskId: string } {
@@ -116,7 +121,7 @@ export class TaskGateway {
     try {
       const parsed = parseChatCommand(text);
       await this.im.sendMessage(chatId, "Chat accepted. Thinking...");
-      void this.handleChatAsync(chatId, userId, parsed.prompt);
+      void this.handleChatAsync(chatId, userId, parsed.repo, parsed.prompt);
     } catch (err) {
       await this.im.sendMessage(
         chatId,
@@ -125,9 +130,14 @@ export class TaskGateway {
     }
   }
 
-  private async handleChatAsync(chatId: string, userId: string, prompt: string): Promise<void> {
+  private async handleChatAsync(
+    chatId: string,
+    userId: string,
+    repo: string,
+    prompt: string
+  ): Promise<void> {
     try {
-      const response = await this.chat.ask(prompt);
+      const response = await this.chat.ask(prompt, repo);
       await this.im.sendMessage(chatId, response);
     } catch (err) {
       await this.im.sendMessage(
