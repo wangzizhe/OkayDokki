@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   chat_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   delivery_strategy TEXT NOT NULL,
+  auto_chain INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (chat_id, user_id)
 );

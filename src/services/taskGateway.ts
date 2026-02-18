@@ -1,17 +1,19 @@
 import { IMAdapter } from "../adapters/im/imAdapter.js";
-import { config } from "../config.js";
-import { DeliveryStrategy } from "../types.js";
 import { UserPreferenceRepository } from "../repositories/userPreferenceRepository.js";
+import { config } from "../config.js";
+import { DeliveryStrategy, TaskSpec } from "../types.js";
 import { ChatService } from "./chatService.js";
 import { TaskAction, TaskService, TaskServiceError } from "./taskService.js";
 
-function parseTaskCommand(text: string): {
+type TaskParsed = {
   repo: string;
   intent: string;
-  deliveryStrategy?: DeliveryStrategy;
+  deliveryStrategy: DeliveryStrategy;
   baseBranch: string;
   strategySpecified: boolean;
-} {
+};
+
+function parseTaskLikeCommand(command: "/task" | "/plan", text: string): TaskParsed {
   const trimmed = text.trim();
   const repoMatch = trimmed.match(/repo=([^\s]+)/);
   const strategyMatch = trimmed.match(/strategy=([^\s]+)/);
@@ -25,16 +27,17 @@ function parseTaskCommand(text: string): {
   }
   const baseBranch = baseMatch?.[1] ?? config.baseBranch;
   const intent = trimmed
-    .replace(/^\/task/, "")
+    .replace(new RegExp(`^${command}`), "")
     .replace(/repo=[^\s]+/, "")
     .replace(/strategy=[^\s]+/, "")
     .replace(/base=[^\s]+/, "")
     .trim();
   if (!intent) {
     throw new Error(
-      "Intent is required. Example: /task repo=okd-sandbox strategy=rolling fix login 500"
+      `${command} intent is required. Example: ${command} repo=okd-sandbox strategy=rolling improve tests`
     );
   }
+
   return {
     repo,
     intent,
@@ -44,12 +47,35 @@ function parseTaskCommand(text: string): {
   };
 }
 
+function parseTaskCommand(text: string): TaskParsed {
+  return parseTaskLikeCommand("/task", text);
+}
+
+function parsePlanCommand(text: string): TaskParsed {
+  return parseTaskLikeCommand("/plan", text);
+}
+
 function parseTaskStatusCommand(text: string): { taskId: string } {
   const parts = text.trim().split(/\s+/);
   if (parts.length < 3 || parts[1] !== "status" || !parts[2]) {
     throw new Error("Usage: /task status <task_id>");
   }
   return { taskId: parts[2] };
+}
+
+function parseAutoChainCommand(text: string): { mode: "show" | "on" | "off" } {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length === 1) {
+    return { mode: "show" };
+  }
+  const arg = parts[1]?.toLowerCase();
+  if (arg === "on") {
+    return { mode: "on" };
+  }
+  if (arg === "off") {
+    return { mode: "off" };
+  }
+  throw new Error("Usage: /autochain [on|off]");
 }
 
 function parseStrategyCommand(text: string): { mode: "show" | "set" | "clear"; strategy?: DeliveryStrategy } {
@@ -107,7 +133,11 @@ function parseChatCommand(text: string): { repo: string; prompt: string; reset: 
 type CallbackAction =
   | { kind: "task_action"; action: TaskAction; taskId: string }
   | { kind: "select_strategy"; strategy: DeliveryStrategy; draftId: string }
-  | { kind: "details"; taskId: string };
+  | { kind: "details"; taskId: string }
+  | { kind: "plan_approve"; planId: string }
+  | { kind: "plan_reject"; planId: string }
+  | { kind: "next_approve"; suggestionId: string }
+  | { kind: "next_stop"; suggestionId: string };
 
 function parseAction(raw: string): CallbackAction {
   const [prefix, value] = raw.split(":");
@@ -132,15 +162,53 @@ function parseAction(raw: string): CallbackAction {
   if (prefix === "dtl") {
     return { kind: "details", taskId: value };
   }
+  if (prefix === "pap") {
+    return { kind: "plan_approve", planId: value };
+  }
+  if (prefix === "prj") {
+    return { kind: "plan_reject", planId: value };
+  }
+  if (prefix === "nxa") {
+    return { kind: "next_approve", suggestionId: value };
+  }
+  if (prefix === "nxs") {
+    return { kind: "next_stop", suggestionId: value };
+  }
   throw new Error(`Unsupported callback: ${prefix}`);
 }
 
+type PendingTaskDraft = {
+  chatId: string;
+  userId: string;
+  repo: string;
+  intent: string;
+  baseBranch: string;
+};
+
+type PendingPlan = {
+  chatId: string;
+  userId: string;
+  repo: string;
+  intent: string;
+  strategy: DeliveryStrategy;
+  baseBranch: string;
+  planText: string;
+};
+
+type PendingNextSuggestion = {
+  chatId: string;
+  userId: string;
+  repo: string;
+  intent: string;
+  strategy: DeliveryStrategy;
+  baseBranch: string;
+};
+
 export class TaskGateway {
   private readonly runningApprovals = new Set<string>();
-  private readonly pendingTaskDrafts = new Map<
-    string,
-    { chatId: string; userId: string; repo: string; intent: string; baseBranch: string }
-  >();
+  private readonly pendingTaskDrafts = new Map<string, PendingTaskDraft>();
+  private readonly pendingPlans = new Map<string, PendingPlan>();
+  private readonly pendingNextSuggestions = new Map<string, PendingNextSuggestion>();
 
   constructor(
     private readonly im: IMAdapter,
@@ -168,6 +236,10 @@ export class TaskGateway {
       await this.handleStrategy(chatId, userId, trimmed);
       return;
     }
+    if (trimmed.startsWith("/autochain")) {
+      await this.handleAutoChain(chatId, userId, trimmed);
+      return;
+    }
     if (trimmed.startsWith("/chat")) {
       await this.handleChat(chatId, userId, text);
       return;
@@ -180,7 +252,15 @@ export class TaskGateway {
       await this.handleRerun(chatId, userId, text);
       return;
     }
+    if (trimmed.startsWith("/plan")) {
+      await this.handlePlan(chatId, userId, text);
+      return;
+    }
 
+    await this.handleTaskCreate(chatId, userId, text);
+  }
+
+  private async handleTaskCreate(chatId: string, userId: string, text: string): Promise<void> {
     try {
       const parsed = parseTaskCommand(text);
       if (!parsed.strategySpecified) {
@@ -219,11 +299,66 @@ export class TaskGateway {
         );
         return;
       }
-      await this.createAndPresentTask(chatId, `tg:${userId}`, parsed.repo, parsed.intent, parsed.deliveryStrategy, parsed.baseBranch);
+      await this.createAndPresentTask(
+        chatId,
+        `tg:${userId}`,
+        parsed.repo,
+        parsed.intent,
+        parsed.deliveryStrategy,
+        parsed.baseBranch
+      );
     } catch (err) {
       await this.im.sendMessage(
         chatId,
         err instanceof Error ? err.message : "Failed to parse task command."
+      );
+    }
+  }
+
+  private async handlePlan(chatId: string, userId: string, text: string): Promise<void> {
+    try {
+      const parsed = parsePlanCommand(text);
+      const remembered = this.prefs.getStrategy(chatId, `tg:${userId}`);
+      const strategy = parsed.strategySpecified ? parsed.deliveryStrategy : (remembered ?? config.deliveryStrategy);
+      await this.im.sendMessage(chatId, "Plan accepted. Thinking...");
+      void this.handlePlanAsync(chatId, `tg:${userId}`, parsed.repo, parsed.intent, strategy, parsed.baseBranch);
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof Error ? err.message : "Failed to parse plan command."
+      );
+    }
+  }
+
+  private async handlePlanAsync(
+    chatId: string,
+    userId: string,
+    repo: string,
+    intent: string,
+    strategy: DeliveryStrategy,
+    baseBranch: string
+  ): Promise<void> {
+    try {
+      const planText = await this.chat.ask(
+        chatId,
+        userId,
+        `Create a concise coding plan for this goal. Output 3-6 numbered steps and include key risk checks: ${intent}`,
+        repo
+      );
+      const planId = newDraftId();
+      this.pendingPlans.set(planId, { chatId, userId, repo, intent, strategy, baseBranch, planText });
+      await this.im.sendMessage(
+        chatId,
+        [`Plan for: ${intent}`, "", planText].join("\n"),
+        [[
+          { text: "Approve Plan", callbackData: `pap:${planId}` },
+          { text: "Reject Plan", callbackData: `prj:${planId}` }
+        ]]
+      );
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof Error ? err.message : "Failed to generate plan."
       );
     }
   }
@@ -233,7 +368,7 @@ export class TaskGateway {
     triggerUser: string,
     repo: string,
     intent: string,
-    deliveryStrategy: DeliveryStrategy | undefined,
+    deliveryStrategy: DeliveryStrategy,
     baseBranch: string
   ): Promise<void> {
     const result = this.service.createTask({
@@ -266,6 +401,40 @@ export class TaskGateway {
       `Task parsed: ${result.task.intent}\nStatus: WAIT_APPROVE_WRITE`
     );
     await this.sendApprovalPrompt(chatId, result.task.taskId);
+  }
+
+  private async createAndRunTask(
+    chatId: string,
+    triggerUser: string,
+    repo: string,
+    intent: string,
+    deliveryStrategy: DeliveryStrategy,
+    baseBranch: string
+  ): Promise<void> {
+    const created = this.service.createTask({
+      source: "telegram",
+      triggerUser,
+      repo,
+      intent,
+      agent: "codex",
+      deliveryStrategy,
+      baseBranch
+    });
+    if (created.needsClarify) {
+      await this.im.sendMessage(
+        chatId,
+        `Task parsed but needs clarify. Missing snapshot for '${repo}'. Expected: ${created.expectedPath ?? "n/a"}`
+      );
+      return;
+    }
+    const taskId = created.task.taskId;
+    if (this.runningApprovals.has(taskId)) {
+      await this.im.sendMessage(chatId, `Task ${taskId} is already running.`);
+      return;
+    }
+    this.runningApprovals.add(taskId);
+    await this.im.sendMessage(chatId, `Plan approved. Task ${taskId} accepted. Status: RUNNING`);
+    void this.handleApproveAsync(chatId, triggerUser.replace(/^tg:/, ""), taskId);
   }
 
   private async handleTaskStatus(chatId: string, text: string): Promise<void> {
@@ -325,7 +494,7 @@ export class TaskGateway {
         return;
       }
       if (parsed.mode === "clear") {
-        this.prefs.clearStrategy(chatId, keyUser);
+        this.prefs.setStrategy(chatId, keyUser, config.deliveryStrategy);
         await this.im.sendMessage(
           chatId,
           `Strategy preference cleared. Default is now ${config.deliveryStrategy}.`
@@ -338,6 +507,25 @@ export class TaskGateway {
       await this.im.sendMessage(
         chatId,
         err instanceof Error ? err.message : "Failed to set strategy."
+      );
+    }
+  }
+
+  private async handleAutoChain(chatId: string, userId: string, text: string): Promise<void> {
+    try {
+      const parsed = parseAutoChainCommand(text);
+      const keyUser = `tg:${userId}`;
+      if (parsed.mode === "show") {
+        const enabled = this.prefs.getAutoChain(chatId, keyUser);
+        await this.im.sendMessage(chatId, `Auto-chain is ${enabled ? "ON" : "OFF"}.`);
+        return;
+      }
+      this.prefs.setAutoChain(chatId, keyUser, parsed.mode === "on");
+      await this.im.sendMessage(chatId, `Auto-chain set to ${parsed.mode.toUpperCase()}.`);
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof Error ? err.message : "Failed to set autochain."
       );
     }
   }
@@ -447,6 +635,53 @@ export class TaskGateway {
         );
         return;
       }
+
+      if (parsed.kind === "plan_approve") {
+        const plan = this.pendingPlans.get(parsed.planId);
+        if (!plan) {
+          await this.im.sendMessage(chatId, "Plan approval expired. Please run /plan again.");
+          return;
+        }
+        this.pendingPlans.delete(parsed.planId);
+        await this.createAndRunTask(
+          chatId,
+          plan.userId,
+          plan.repo,
+          plan.intent,
+          plan.strategy,
+          plan.baseBranch
+        );
+        return;
+      }
+      if (parsed.kind === "plan_reject") {
+        this.pendingPlans.delete(parsed.planId);
+        await this.im.sendMessage(chatId, "Plan rejected.");
+        return;
+      }
+
+      if (parsed.kind === "next_approve") {
+        const next = this.pendingNextSuggestions.get(parsed.suggestionId);
+        if (!next) {
+          await this.im.sendMessage(chatId, "Next-step suggestion expired.");
+          return;
+        }
+        this.pendingNextSuggestions.delete(parsed.suggestionId);
+        await this.createAndRunTask(
+          chatId,
+          next.userId,
+          next.repo,
+          next.intent,
+          next.strategy,
+          next.baseBranch
+        );
+        return;
+      }
+      if (parsed.kind === "next_stop") {
+        this.pendingNextSuggestions.delete(parsed.suggestionId);
+        await this.im.sendMessage(chatId, "Auto-chain suggestion skipped.");
+        return;
+      }
+
       if (parsed.kind === "details") {
         await this.im.sendMessage(chatId, this.buildApprovalDetails(parsed.taskId));
         return;
@@ -503,6 +738,10 @@ export class TaskGateway {
         chatId,
         `Task ${taskId} completed.\nTests: ${result.runResult?.testsResult ?? "unknown"}\nPR: ${result.runResult?.prLink ?? "not created"}`
       );
+      const autoChain = this.prefs.getAutoChain(chatId, `tg:${userId}`);
+      if (autoChain) {
+        void this.suggestNextTask(chatId, `tg:${userId}`, result.task);
+      }
     } catch (err) {
       if (err instanceof TaskServiceError && err.statusCode === 500) {
         await this.im.sendMessage(
@@ -521,6 +760,37 @@ export class TaskGateway {
       );
     } finally {
       this.runningApprovals.delete(taskId);
+    }
+  }
+
+  private async suggestNextTask(chatId: string, userId: string, task: TaskSpec): Promise<void> {
+    try {
+      const suggestion = await this.chat.ask(
+        chatId,
+        userId,
+        `Suggest the single next coding step after this completed task. Respond with one short imperative sentence only. Completed task: ${task.intent}`,
+        task.repo
+      );
+      const intent = firstLine(suggestion);
+      const suggestionId = newDraftId();
+      this.pendingNextSuggestions.set(suggestionId, {
+        chatId,
+        userId,
+        repo: task.repo,
+        intent,
+        strategy: task.deliveryStrategy ?? config.deliveryStrategy,
+        baseBranch: task.baseBranch ?? config.baseBranch
+      });
+      await this.im.sendMessage(
+        chatId,
+        `Auto-chain suggestion:\n${intent}`,
+        [[
+          { text: "Approve Next", callbackData: `nxa:${suggestionId}` },
+          { text: "Stop", callbackData: `nxs:${suggestionId}` }
+        ]]
+      );
+    } catch {
+      // Do not fail main task completion message on auto-chain suggestion errors.
     }
   }
 
@@ -588,4 +858,9 @@ function truncate(value: string, max: number): string {
 
 function newDraftId(): string {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function firstLine(text: string): string {
+  const line = text.split("\n").map((s) => s.trim()).find(Boolean);
+  return line || text.trim();
 }

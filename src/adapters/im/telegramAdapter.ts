@@ -92,8 +92,10 @@ export class TelegramAdapter implements IMAdapter {
     const messageText = update.message?.text ?? "";
     if (
       (messageText.startsWith("/task") ||
+        messageText.startsWith("/plan") ||
         messageText.startsWith("/rerun") ||
         messageText.startsWith("/last") ||
+        messageText.startsWith("/autochain") ||
         messageText.startsWith("/strategy") ||
         messageText.startsWith("/chat")) &&
       this.taskHandler

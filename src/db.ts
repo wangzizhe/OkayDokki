@@ -21,6 +21,7 @@ export function initDb(db: SqliteDb): void {
   const schema = fs.readFileSync(schemaPath, "utf8");
   db.exec(schema);
   ensureTaskColumns(db);
+  ensureUserPreferenceColumns(db);
 }
 
 function ensureTaskColumns(db: SqliteDb): void {
@@ -32,5 +33,16 @@ function ensureTaskColumns(db: SqliteDb): void {
   }
   if (!columns.has("base_branch")) {
     db.exec("ALTER TABLE tasks ADD COLUMN base_branch TEXT NOT NULL DEFAULT 'main'");
+  }
+}
+
+function ensureUserPreferenceColumns(db: SqliteDb): void {
+  const rows = db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name?: string }>;
+  if (!rows || rows.length === 0) {
+    return;
+  }
+  const columns = new Set(rows.map((r) => String(r.name ?? "")));
+  if (!columns.has("auto_chain")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN auto_chain INTEGER NOT NULL DEFAULT 0");
   }
 }
