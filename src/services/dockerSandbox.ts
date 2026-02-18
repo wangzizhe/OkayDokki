@@ -9,10 +9,6 @@ import { resolveRepoSnapshotPath } from "../utils/repoSnapshot.js";
 const execFileAsync = promisify(execFile);
 
 export interface SandboxExecutionResult {
-  diff: string;
-  agentLogs: string[];
-  agentMeta: Record<string, string>;
-  agentExitCode: number;
   testExitCode: number;
   testLog: string;
 }
@@ -27,7 +23,7 @@ export interface DockerSandboxOptions {
 export class DockerSandbox {
   constructor(private readonly options: DockerSandboxOptions) {}
 
-  async runTask(task: TaskSpec, agentCommand: string): Promise<SandboxExecutionResult> {
+  async runValidation(task: TaskSpec, candidatePath: string): Promise<SandboxExecutionResult> {
     const hostRepoPath = this.resolveRepoPath(task.repo);
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `okaydokki-${task.taskId}-`));
     const workDir = path.join(tempDir, "work");
@@ -40,13 +36,10 @@ export class DockerSandbox {
     const script = [
       "set -eu",
       "cp -a /repo/. /work",
+      "cp -a /candidate/. /work",
       "cd /work",
-      "AGENT_STATUS=0",
-      "sh -lc \"$AGENT_CMD\" > /out/agent.log 2>&1 || AGENT_STATUS=$?",
-      "echo \"$AGENT_STATUS\" > /out/agent.exit",
-      "diff -ruN /repo /work > /out/patch.diff || true",
       "TEST_STATUS=0",
-      "if [ -n \"${TEST_CMD:-}\" ] && [ \"$AGENT_STATUS\" -eq 0 ]; then",
+      "if [ -n \"${TEST_CMD:-}\" ]; then",
       "  sh -lc \"$TEST_CMD\" > /out/test.log 2>&1 || TEST_STATUS=$?",
       "else",
       "  echo \"test skipped\" > /out/test.log",
@@ -64,41 +57,23 @@ export class DockerSandbox {
         "-v",
         `${hostRepoPath}:/repo:ro`,
         "-v",
+        `${candidatePath}:/candidate:ro`,
+        "-v",
         `${workDir}:/work`,
         "-v",
         `${outDir}:/out`,
-      "-e",
-      `AGENT_CMD=${agentCommand}`,
-      "-e",
-      `TEST_CMD=${testCommand}`,
-      "-e",
-      `OKD_TASK_ID=${task.taskId}`,
-      "-e",
-      `OKD_REPO=${task.repo}`,
-      "-e",
-      `OKD_BRANCH=${task.branch}`,
-      "-e",
-      `OKD_TRIGGER_USER=${task.triggerUser}`,
-      "-e",
-      `OKD_INTENT=${task.intent}`,
-      "-e",
-      "OKD_WORKDIR=/work",
-      "-e",
-      "OKD_OUTDIR=/out",
-      this.options.image,
-      "sh",
-      "-lc",
-      script
+        "-e",
+        `TEST_CMD=${testCommand}`,
+        this.options.image,
+        "sh",
+        "-lc",
+        script
       ]);
     } catch (err) {
       dockerError = err;
     }
 
-    const diff = this.readFileSafe(path.join(outDir, "patch.diff"));
-    const agentLog = this.readFileSafe(path.join(outDir, "agent.log"));
-    const agentMeta = this.readJsonObject(path.join(outDir, "agent.meta.json"));
     const testLog = this.readFileSafe(path.join(outDir, "test.log"));
-    const agentExitCode = Number(this.readFileSafe(path.join(outDir, "agent.exit")).trim() || "1");
     const testExitCode = Number(this.readFileSafe(path.join(outDir, "test.exit")).trim() || "1");
 
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -109,10 +84,6 @@ export class DockerSandbox {
     }
 
     return {
-      diff,
-      agentLogs: agentLog ? [agentLog] : [],
-      agentMeta,
-      agentExitCode,
       testExitCode,
       testLog
     };
@@ -140,22 +111,4 @@ export class DockerSandbox {
     return fs.readFileSync(filePath, "utf8");
   }
 
-  private readJsonObject(filePath: string): Record<string, string> {
-    if (!fs.existsSync(filePath)) {
-      return {};
-    }
-    try {
-      const raw = fs.readFileSync(filePath, "utf8");
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const out: Record<string, string> = {};
-      for (const [key, value] of Object.entries(parsed)) {
-        if (typeof value === "string") {
-          out[key] = value;
-        }
-      }
-      return out;
-    } catch {
-      return {};
-    }
-  }
 }

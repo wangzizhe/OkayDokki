@@ -12,6 +12,7 @@ import { DockerSandbox } from "./services/dockerSandbox.js";
 import { TaskService } from "./services/taskService.js";
 import { createTaskRoutes } from "./routes/taskRoutes.js";
 import { getHealthDetails } from "./services/health.js";
+import { HostAgentExecutor } from "./services/hostAgentExecutor.js";
 
 async function main(): Promise<void> {
   const db = createDb();
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
   const repo = new TaskRepository(db);
   const audit = new AuditLogger();
   const agent = new CliAgentAdapter(config.agentCliTemplate);
+  const hostExecutor = new HostAgentExecutor(config.repoSnapshotRoot);
   const sandbox = new DockerSandbox({
     image: config.sandboxImage,
     repoRoot: config.repoSnapshotRoot,
@@ -27,7 +29,7 @@ async function main(): Promise<void> {
     defaultTestCommand: config.defaultTestCommand
   });
   const prCreator = new PrCreator();
-  const runner = new TaskRunner(agent, sandbox, prCreator, {
+  const runner = new TaskRunner(agent, hostExecutor, sandbox, prCreator, {
     blockedPathPrefixes: config.blockedPathPrefixes,
     maxChangedFiles: config.maxChangedFiles,
     maxDiffBytes: config.maxDiffBytes,

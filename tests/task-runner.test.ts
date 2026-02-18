@@ -22,12 +22,17 @@ function createRunner(params: {
   prLink?: string | null;
 }): TaskRunner {
   const adapter = { buildCommand: () => "echo run" };
-  const sandbox = {
-    runTask: async () => ({
+  const hostExecutor = {
+    run: async () => ({
       diff: params.diff,
       agentLogs: [],
       agentMeta: {},
-      agentExitCode: 0,
+      candidatePath: "/tmp/candidate",
+      cleanup: () => {}
+    })
+  };
+  const sandbox = {
+    runValidation: async () => ({
       testExitCode: params.testExitCode ?? 0,
       testLog: "ok"
     })
@@ -35,13 +40,98 @@ function createRunner(params: {
   const prCreator = {
     createDraftPr: async () => params.prLink ?? "https://example.com/pr/1"
   };
-  return new TaskRunner(adapter as never, sandbox as never, prCreator as never, {
-    blockedPathPrefixes: [".github/workflows/", "secrets/"],
-    maxChangedFiles: 10,
-    maxDiffBytes: 20000,
-    disallowBinaryPatch: true
-  });
+  return new TaskRunner(
+    adapter as never,
+    hostExecutor as never,
+    sandbox as never,
+    prCreator as never,
+    {
+      blockedPathPrefixes: [".github/workflows/", "secrets/"],
+      maxChangedFiles: 10,
+      maxDiffBytes: 20000,
+      disallowBinaryPatch: true
+    }
+  );
 }
+
+test("runner maps agent execution failures to AGENT_FAILED", async () => {
+  const adapter = { buildCommand: () => "echo run" };
+  const hostExecutor = {
+    run: async () => {
+      throw new Error("not logged in");
+    }
+  };
+  const sandbox = {
+    runValidation: async () => ({
+      testExitCode: 0,
+      testLog: "ok"
+    })
+  };
+  const prCreator = {
+    createDraftPr: async () => "https://example.com/pr/1"
+  };
+  const runner = new TaskRunner(
+    adapter as never,
+    hostExecutor as never,
+    sandbox as never,
+    prCreator as never,
+    {
+      blockedPathPrefixes: [".github/workflows/", "secrets/"],
+      maxChangedFiles: 10,
+      maxDiffBytes: 20000,
+      disallowBinaryPatch: true
+    }
+  );
+  await assert.rejects(
+    () => runner.run(task),
+    (err: unknown) => {
+      assert.ok(err instanceof TaskRunnerError);
+      assert.equal(err.code, "AGENT_FAILED");
+      return true;
+    }
+  );
+});
+
+test("runner maps sandbox failures to SANDBOX_FAILED", async () => {
+  const adapter = { buildCommand: () => "echo run" };
+  const hostExecutor = {
+    run: async () => ({
+      diff: "",
+      agentLogs: [],
+      agentMeta: {},
+      candidatePath: "/tmp/candidate",
+      cleanup: () => {}
+    })
+  };
+  const sandbox = {
+    runValidation: async () => {
+      throw new Error("docker down");
+    }
+  };
+  const prCreator = {
+    createDraftPr: async () => "https://example.com/pr/1"
+  };
+  const runner = new TaskRunner(
+    adapter as never,
+    hostExecutor as never,
+    sandbox as never,
+    prCreator as never,
+    {
+      blockedPathPrefixes: [".github/workflows/", "secrets/"],
+      maxChangedFiles: 10,
+      maxDiffBytes: 20000,
+      disallowBinaryPatch: true
+    }
+  );
+  await assert.rejects(
+    () => runner.run(task),
+    (err: unknown) => {
+      assert.ok(err instanceof TaskRunnerError);
+      assert.equal(err.code, "SANDBOX_FAILED");
+      return true;
+    }
+  );
+});
 
 test("runner blocks diff that modifies blocked path", async () => {
   const runner = createRunner({
@@ -104,12 +194,17 @@ test("runner allows compliant diff and creates PR", async () => {
 
 test("runner maps pr creator failures to PR_CREATE_FAILED", async () => {
   const adapter = { buildCommand: () => "echo run" };
-  const sandbox = {
-    runTask: async () => ({
+  const hostExecutor = {
+    run: async () => ({
       diff: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n",
       agentLogs: [],
       agentMeta: {},
-      agentExitCode: 0,
+      candidatePath: "/tmp/candidate",
+      cleanup: () => {}
+    })
+  };
+  const sandbox = {
+    runValidation: async () => ({
       testExitCode: 0,
       testLog: "ok"
     })
@@ -119,12 +214,18 @@ test("runner maps pr creator failures to PR_CREATE_FAILED", async () => {
       throw new Error("gh missing");
     }
   };
-  const runner = new TaskRunner(adapter as never, sandbox as never, prCreator as never, {
-    blockedPathPrefixes: [],
-    maxChangedFiles: 10,
-    maxDiffBytes: 20000,
-    disallowBinaryPatch: true
-  });
+  const runner = new TaskRunner(
+    adapter as never,
+    hostExecutor as never,
+    sandbox as never,
+    prCreator as never,
+    {
+      blockedPathPrefixes: [],
+      maxChangedFiles: 10,
+      maxDiffBytes: 20000,
+      disallowBinaryPatch: true
+    }
+  );
   await assert.rejects(
     () => runner.run(task),
     (err: unknown) => {
