@@ -19,14 +19,19 @@ export class PrCreator {
     }
 
     this.syncCandidateToRepo(candidatePath, repoPath);
-    await this.prepareGitBranch(repoPath, task);
+    const stack = await this.prepareGitBranch(repoPath, task);
 
     const title = `chore(agent): ${task.intent}`;
     const body = [
       "Automated by OkayDokki.",
       "",
       `Task ID: ${task.taskId}`,
-      `Trigger user: ${task.triggerUser}`
+      `Trigger user: ${task.triggerUser}`,
+      "",
+      "Stack:",
+      `- Strategy: rolling`,
+      `- Parent branch: ${stack.parentBranch}`,
+      `- Merge order: ${stack.mergeOrder}`
     ].join("\n");
 
     try {
@@ -72,7 +77,11 @@ export class PrCreator {
     }
   }
 
-  private async prepareGitBranch(repoPath: string, task: TaskSpec): Promise<void> {
+  private async prepareGitBranch(
+    repoPath: string,
+    task: TaskSpec
+  ): Promise<{ parentBranch: string; mergeOrder: string }> {
+    const parentBranch = await this.getCurrentBranch(repoPath);
     await this.runGit(repoPath, ["checkout", "-B", task.branch]);
     await this.runGit(repoPath, ["add", "-A"]);
 
@@ -91,6 +100,13 @@ export class PrCreator {
       `chore(agent): ${task.intent}`
     ]);
     await this.runGit(repoPath, ["push", "-u", "origin", task.branch]);
+    return {
+      parentBranch,
+      mergeOrder:
+        parentBranch === "main"
+          ? `${task.branch} -> main`
+          : `${parentBranch} -> ${task.branch} -> main`
+    };
   }
 
   private async hasStagedChanges(repoPath: string): Promise<boolean> {
@@ -108,6 +124,18 @@ export class PrCreator {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new PrCreatorError(`git ${args.join(" ")} failed: ${message}`);
+    }
+  }
+
+  private async getCurrentBranch(repoPath: string): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+        cwd: repoPath
+      });
+      const branch = stdout.trim();
+      return branch || "unknown";
+    } catch {
+      return "unknown";
     }
   }
 }
