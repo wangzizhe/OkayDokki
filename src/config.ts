@@ -70,6 +70,7 @@ export const config = {
   agentAuthMode,
   agentSessionCheckCmd: process.env.AGENT_SESSION_CHECK_CMD ?? "",
   chatCliBin: process.env.CHAT_CLI_BIN ?? "",
+  chatHistoryTurns: Number(process.env.CHAT_HISTORY_TURNS ?? "6"),
   telegramMode,
   telegramBotToken: required("TELEGRAM_BOT_TOKEN"),
   telegramWebhookSecret:

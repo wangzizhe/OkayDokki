@@ -184,6 +184,7 @@ curl -s http://localhost:3000/api/v1/health/details | jq
 - `/rerun <task_id>`: rerun a previous task as a new task.
 - `/chat ...`: chat-only mode for ideation/planning (no task state transition, no PR).
 - `/chat repo=<repo> ...`: chat against a specific repo snapshot context.
+- `/chat reset`: clear short-term chat memory for current Telegram session.
 
 ## Agent Auth Modes
 
@@ -201,6 +202,7 @@ Chat mode notes:
 
 - `/chat` uses local CLI in read-only sandbox mode.
 - You can override chat CLI binary via `CHAT_CLI_BIN`.
+- Chat memory keeps recent turns per `chat_id + user_id` (`CHAT_HISTORY_TURNS`, default `6`).
 
 ## MVP Scope in This Repository
 
