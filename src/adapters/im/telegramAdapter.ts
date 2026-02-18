@@ -21,8 +21,11 @@ type CallbackHandler = (chatId: string, userId: string, data: string) => Promise
 export class TelegramAdapter implements IMAdapter {
   private taskHandler: TaskHandler | null = null;
   private callbackHandler: CallbackHandler | null = null;
+  private polling = false;
+  private stopRequested = false;
+  private updateOffset = 0;
 
-  constructor(private readonly token: string, private readonly secret: string) {}
+  constructor(private readonly token: string, private readonly secret?: string) {}
 
   onTaskCommand(handler: TaskHandler): void {
     this.taskHandler = handler;
@@ -33,6 +36,9 @@ export class TelegramAdapter implements IMAdapter {
   }
 
   mountWebhook(path: string): express.RequestHandler {
+    if (!this.secret) {
+      throw new Error("TELEGRAM_WEBHOOK_SECRET is required for webhook mode.");
+    }
     const router = express.Router();
     router.post(path, express.json(), async (req, res) => {
       const secret = req.header("x-telegram-bot-api-secret-token");
@@ -46,6 +52,19 @@ export class TelegramAdapter implements IMAdapter {
       res.status(200).send("ok");
     });
     return router;
+  }
+
+  startPolling(): void {
+    if (this.polling) {
+      return;
+    }
+    this.polling = true;
+    this.stopRequested = false;
+    void this.pollLoop();
+  }
+
+  stopPolling(): void {
+    this.stopRequested = true;
   }
 
   async sendMessage(chatId: string, content: string, buttons?: InlineButton[][]): Promise<void> {
@@ -89,4 +108,45 @@ export class TelegramAdapter implements IMAdapter {
       );
     }
   }
+
+  private async pollLoop(): Promise<void> {
+    while (!this.stopRequested) {
+      try {
+        const url = `https://api.telegram.org/bot${this.token}/getUpdates`;
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            timeout: 25,
+            offset: this.updateOffset,
+            allowed_updates: ["message", "callback_query"]
+          })
+        });
+        if (!response.ok) {
+          throw new Error(`getUpdates failed: ${response.status}`);
+        }
+
+        const payload = (await response.json()) as {
+          ok: boolean;
+          result?: Array<Update & { update_id: number }>;
+        };
+
+        if (!payload.ok || !payload.result) {
+          throw new Error("getUpdates returned non-ok payload");
+        }
+
+        for (const update of payload.result) {
+          this.updateOffset = Math.max(this.updateOffset, update.update_id + 1);
+          await this.handleUpdate(update);
+        }
+      } catch {
+        await sleep(1500);
+      }
+    }
+    this.polling = false;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

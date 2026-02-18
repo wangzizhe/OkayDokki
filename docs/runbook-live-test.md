@@ -5,9 +5,13 @@ This runbook is for first live integration of Telegram + agent command + draft P
 ## 0) Preconditions
 
 1. Configure `.env` from `.env.example`.
-2. Prepare repo snapshot under `REPO_SNAPSHOT_ROOT/<org>/<repo>`.
-3. Ensure `docker` is running.
-4. Ensure `gh` is installed and authenticated.
+2. For self-hosted personal setup, prefer:
+   - `TELEGRAM_MODE=polling`
+   - `AGENT_AUTH_MODE=session`
+3. If `AGENT_AUTH_MODE=session`, login your agent CLI first (example: `codex login`).
+4. Prepare repo snapshot under `REPO_SNAPSHOT_ROOT/<org>/<repo>`.
+5. Ensure `docker` is running.
+6. Ensure `gh` is installed and authenticated.
 
 ## 1) Preflight
 
@@ -91,4 +95,3 @@ Failure event:
 
 5. `TEST_FAILED`
 - Open test log in audit context and fix failing tests.
-

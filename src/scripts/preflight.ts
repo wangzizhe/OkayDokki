@@ -131,6 +131,84 @@ function checkAgentTemplate(): CheckResult {
   return ok("AGENT_CLI_TEMPLATE", "configured");
 }
 
+function parseAgentAuthMode(): CheckResult | { mode: "session" | "api" } {
+  const raw = process.env.AGENT_AUTH_MODE ?? "session";
+  const mode = raw.trim().toLowerCase();
+  if (mode !== "session" && mode !== "api") {
+    return fail("AGENT_AUTH_MODE", `invalid value '${raw}', expected session or api`);
+  }
+  return { mode };
+}
+
+function extractCommandBinary(command: string): string | null {
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const first = trimmed.split(/\s+/)[0] ?? "";
+  if (!first || first.includes("=") || first === "sh" || first === "bash") {
+    return null;
+  }
+  return first;
+}
+
+function checkAgentCliAvailable(): CheckResult {
+  const template = process.env.AGENT_CLI_TEMPLATE ?? "";
+  const bin = extractCommandBinary(template);
+  if (!bin) {
+    return warn("agent cli", "cannot infer CLI binary from AGENT_CLI_TEMPLATE");
+  }
+  const shellBuiltins = new Set(["printf", "echo", "cd", "test", "true", "false", "export"]);
+  if (shellBuiltins.has(bin)) {
+    return warn("agent cli", `${bin} is a shell builtin (placeholder or wrapper command)`);
+  }
+  const res = runCmd(bin, ["--version"]);
+  if (res.status !== 0) {
+    return fail("agent cli", `${bin} unavailable or --version failed`);
+  }
+  const line = (res.stdout || res.stderr).trim().split("\n")[0] ?? "";
+  return ok("agent cli", `${bin}: ${line}`);
+}
+
+function checkAgentSessionAuth(): CheckResult {
+  const cmd = process.env.AGENT_SESSION_CHECK_CMD?.trim();
+  if (!cmd) {
+    return warn(
+      "agent session auth",
+      "AGENT_SESSION_CHECK_CMD not set; skip login-state verification"
+    );
+  }
+  const out = spawnSync("sh", ["-lc", cmd], {
+    encoding: "utf8"
+  });
+  if (out.status !== 0) {
+    const msg = (out.stderr || out.stdout || "exit non-zero").trim();
+    return fail("agent session auth", msg);
+  }
+  const line = (out.stdout || out.stderr || "ok").trim().split("\n")[0] ?? "ok";
+  return ok("agent session auth", line);
+}
+
+function parseTelegramMode(): CheckResult | { mode: "polling" | "webhook" } {
+  const raw = process.env.TELEGRAM_MODE ?? "polling";
+  const mode = raw.trim().toLowerCase();
+  if (mode !== "polling" && mode !== "webhook") {
+    return fail("TELEGRAM_MODE", `invalid value '${raw}', expected polling or webhook`);
+  }
+  return { mode };
+}
+
+function optionalEnvForPolling(name: string): CheckResult {
+  const value = process.env[name];
+  if (!value || value.trim() === "") {
+    return ok(name, "not required in polling mode");
+  }
+  if (value.includes("replace_me")) {
+    return fail(name, "placeholder value detected");
+  }
+  return ok(name, "configured");
+}
+
 function printResults(results: CheckResult[]): void {
   process.stdout.write("OkayDokki preflight\n");
   for (const r of results) {
@@ -142,16 +220,50 @@ function printResults(results: CheckResult[]): void {
 }
 
 function main(): void {
-  const results: CheckResult[] = [
+  const modeResult = parseTelegramMode();
+  const authModeResult = parseAgentAuthMode();
+  const results: CheckResult[] = [];
+  if ("level" in modeResult) {
+    results.push(modeResult);
+  } else {
+    results.push(ok("TELEGRAM_MODE", modeResult.mode));
+  }
+  if ("level" in authModeResult) {
+    results.push(authModeResult);
+  } else {
+    results.push(ok("AGENT_AUTH_MODE", authModeResult.mode));
+  }
+
+  results.push(
     runCheck("TELEGRAM_BOT_TOKEN", () => requiredEnv("TELEGRAM_BOT_TOKEN")),
-    runCheck("TELEGRAM_WEBHOOK_SECRET", () => requiredEnv("TELEGRAM_WEBHOOK_SECRET")),
-    runCheck("BASE_URL", () => requiredEnv("BASE_URL")),
     runCheck("AGENT_CLI_TEMPLATE", checkAgentTemplate),
+    runCheck("agent cli", checkAgentCliAvailable),
     runCheck("DATABASE_PATH", () => optionalEnvNotPlaceholder("DATABASE_PATH")),
     runCheck("docker", checkDocker),
-    runCheck("gh", checkGh),
-    ...checkRepoRootAndDefaultRepo()
-  ];
+    runCheck("gh", checkGh)
+  );
+
+  const authMode = "mode" in authModeResult ? authModeResult.mode : "session";
+  if (authMode === "session") {
+    results.push(runCheck("agent session auth", checkAgentSessionAuth));
+  } else {
+    results.push(ok("agent session auth", "not required in api mode"));
+  }
+
+  const mode = "mode" in modeResult ? modeResult.mode : "polling";
+  if (mode === "webhook") {
+    results.push(
+      runCheck("TELEGRAM_WEBHOOK_SECRET", () => requiredEnv("TELEGRAM_WEBHOOK_SECRET")),
+      runCheck("BASE_URL", () => requiredEnv("BASE_URL"))
+    );
+  } else {
+    results.push(
+      runCheck("TELEGRAM_WEBHOOK_SECRET", () => optionalEnvForPolling("TELEGRAM_WEBHOOK_SECRET")),
+      runCheck("BASE_URL", () => optionalEnvForPolling("BASE_URL"))
+    );
+  }
+
+  results.push(...checkRepoRootAndDefaultRepo());
 
   printResults(results);
   const hasFail = results.some((r) => r.level === "FAIL");
@@ -159,4 +271,3 @@ function main(): void {
 }
 
 main();
-

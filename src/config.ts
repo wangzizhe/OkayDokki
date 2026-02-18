@@ -1,6 +1,8 @@
 import dotenv from "dotenv";
 
 dotenv.config();
+export type TelegramMode = "polling" | "webhook";
+export type AgentAuthMode = "session" | "api";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -24,6 +26,26 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return defaultValue;
 }
 
+function parseTelegramMode(value: string | undefined): TelegramMode {
+  const normalized = (value ?? "polling").trim().toLowerCase();
+  if (normalized === "polling" || normalized === "webhook") {
+    return normalized;
+  }
+  throw new Error(`Invalid TELEGRAM_MODE: ${value}. Expected polling or webhook.`);
+}
+
+const telegramMode = parseTelegramMode(process.env.TELEGRAM_MODE);
+
+function parseAgentAuthMode(value: string | undefined): AgentAuthMode {
+  const normalized = (value ?? "session").trim().toLowerCase();
+  if (normalized === "session" || normalized === "api") {
+    return normalized;
+  }
+  throw new Error(`Invalid AGENT_AUTH_MODE: ${value}. Expected session or api.`);
+}
+
+const agentAuthMode = parseAgentAuthMode(process.env.AGENT_AUTH_MODE);
+
 export const config = {
   port: Number(process.env.PORT ?? "3000"),
   dbPath: process.env.DATABASE_PATH ?? "./okaydokki.db",
@@ -45,8 +67,12 @@ export const config = {
   agentCliTemplate:
     process.env.AGENT_CLI_TEMPLATE ??
     "printf 'agent placeholder for %s\\n' \"$OKD_INTENT\" && touch .okaydokki-agent && printf '{\"engine\":\"codex\",\"protocol\":\"v1\"}\\n' > \"$OKD_OUTDIR/agent.meta.json\"",
+  agentAuthMode,
+  agentSessionCheckCmd: process.env.AGENT_SESSION_CHECK_CMD ?? "",
+  telegramMode,
   telegramBotToken: required("TELEGRAM_BOT_TOKEN"),
-  telegramWebhookSecret: required("TELEGRAM_WEBHOOK_SECRET"),
-  baseUrl: required("BASE_URL"),
+  telegramWebhookSecret:
+    telegramMode === "webhook" ? required("TELEGRAM_WEBHOOK_SECRET") : (process.env.TELEGRAM_WEBHOOK_SECRET ?? ""),
+  baseUrl: telegramMode === "webhook" ? required("BASE_URL") : (process.env.BASE_URL ?? ""),
   defaultRepo: process.env.DEFAULT_REPO ?? "org/name"
 };

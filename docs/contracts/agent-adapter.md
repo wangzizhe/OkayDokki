@@ -5,6 +5,8 @@ This contract defines how OkayDokki executes an agent command in sandbox mode.
 ## Execution Model
 
 - Adapter provides one shell command string via `AGENT_CLI_TEMPLATE`.
+- Auth mode is declared by `AGENT_AUTH_MODE` (`session` or `api`).
+- Optional session check command: `AGENT_SESSION_CHECK_CMD`.
 - Command runs inside Docker with current directory `/work`.
 - Source snapshot is mounted read-only at `/repo`.
 - Mutable workspace is `/work`.
@@ -52,4 +54,3 @@ Example:
 ```
 
 The runner parses this file and returns it as `run_result.agentMeta`.
-

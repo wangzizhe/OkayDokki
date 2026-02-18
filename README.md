@@ -7,7 +7,7 @@ All actions are auditable by design with strict default safety boundaries (read-
 
 ## MVP Stack
 
-- IM: Telegram Bot API (webhook mode)
+- IM: Telegram Bot API (`polling` default for self-hosted, `webhook` optional)
 - Task store: SQLite
 - Sandbox: Docker read-only mount + overlay write
 - Agent adapter: CLI (Codex, Claude Code, etc.)
@@ -89,37 +89,69 @@ Note:
 
 - `CREATED` exists as a conceptual state in design docs; current runtime creates tasks directly as `WAIT_CLARIFY` or `WAIT_APPROVE_WRITE`.
 
+## Execution Flow (LLM + Safe Sandbox)
+
+```mermaid
+flowchart TD
+    A["User (Telegram) sends /task"] --> B["Task Gateway: create task + state"]
+    B --> C{"Need clarification?"}
+    C -- "Yes" --> C1["WAIT_CLARIFY: ask user/retry"]
+    C -- "No" --> D["WAIT_APPROVE_WRITE: summary + Approve/Reject"]
+
+    D --> E{"Approved?"}
+    E -- "Reject" --> E1["FAILED/REJECTED + audit log"]
+    E -- "Approve" --> F["RUNNING"]
+
+    F --> G["Stage 1 (Host, network allowed): run agent CLI, generate patch.diff + logs/meta"]
+    G --> H{"Diff generated?"}
+    H -- "No" --> H1["COMPLETED (no changes) + audit log"]
+    H -- "Yes" --> I["Stage 2 (Docker sandbox, no network): apply diff + run tests + policy checks"]
+
+    I --> J{"Tests/policy pass?"}
+    J -- "No" --> J1["FAILED with error_code + audit log"]
+    J -- "Yes" --> K["Create Draft PR (gh)"]
+    K --> L["PR_CREATED -> COMPLETED, send PR link in Telegram"]
+```
+
+Design intent:
+
+- Stage 1 is proposal generation (LLM/agent).
+- Stage 2 is constrained validation and enforcement (safe execution boundary).
+
 ## Quick Start
 
 1. Copy `.env.example` to `.env`.
-2. Fill required values.
-3. Prepare repository snapshots under `REPO_SNAPSHOT_ROOT`.
+2. For personal self-hosted setup, keep `TELEGRAM_MODE=polling`.
+3. Fill required values.
+   - Always required: `TELEGRAM_BOT_TOKEN`, `AGENT_CLI_TEMPLATE`
+   - Required only in webhook mode: `TELEGRAM_WEBHOOK_SECRET`, `BASE_URL`
+4. Prepare repository snapshots under `REPO_SNAPSHOT_ROOT`.
    Example for `repo=org/name`: `${REPO_SNAPSHOT_ROOT}/org/name`.
-4. Install dependencies:
+5. Install dependencies:
 
 ```bash
 npm install
 ```
 
-5. Initialize DB:
+6. Initialize DB:
 
 ```bash
 npm run db:init
 ```
 
-6. Run preflight checks:
+7. Run preflight checks:
 
 ```bash
 npm run preflight
 ```
 
-7. Start service:
+8. Start service:
 
 ```bash
 npm run dev
 ```
 
-8. Run tests:
+9. Run tests:
 
 ```bash
 npm test
@@ -134,6 +166,29 @@ npm run dev
 curl -s http://localhost:3000/api/v1/health/details | jq
 # Then send /task in Telegram
 ```
+
+## Telegram Run Modes
+
+- `polling` (default, recommended for personal deployment):
+  - no public domain required
+  - no HTTPS certificate required
+  - easiest local bring-up
+- `webhook` (optional, recommended for always-on server deployment):
+  - requires public HTTPS endpoint
+  - set `BASE_URL` and `TELEGRAM_WEBHOOK_SECRET`
+  - endpoint path: `/webhook/telegram`
+
+## Agent Auth Modes
+
+- `session` (default, recommended for self-hosted):
+  - use your local provider CLI login (subscription/session)
+  - no provider API key storage required by OkayDokki
+  - optionally set `AGENT_SESSION_CHECK_CMD` for preflight login-state checks
+- `api` (optional):
+  - use provider API keys
+  - useful for centralized team deployment
+
+See `docs/provider-auth.md` for setup details.
 
 ## MVP Scope in This Repository
 
@@ -158,6 +213,8 @@ curl -s http://localhost:3000/api/v1/health/details | jq
 ## Sandbox Notes
 
 - Agent command is configured by `AGENT_CLI_TEMPLATE`.
+- Agent auth mode is configured by `AGENT_AUTH_MODE` (`session` by default).
+- In `session` mode, you can set `AGENT_SESSION_CHECK_CMD` to validate login state during preflight.
 - Recommended style:
   - use injected `$OKD_*` environment variables directly in the command.
 - Example:

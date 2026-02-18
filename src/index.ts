@@ -44,10 +44,18 @@ async function main(): Promise<void> {
   app.get("/healthz", (_req, res) => res.status(200).json({ ok: true }));
   app.get("/api/v1/health/details", (_req, res) => res.status(200).json(getHealthDetails()));
   app.use("/api/v1", createTaskRoutes(taskService));
-  app.use(telegram.mountWebhook("/webhook/telegram"));
+  if (config.telegramMode === "webhook") {
+    app.use(telegram.mountWebhook("/webhook/telegram"));
+  }
 
-  app.listen(config.port, () => {
-    process.stdout.write(`okaydokki running at :${config.port}\n`);
+  app.listen(config.port, async () => {
+    process.stdout.write(`okaydokki running at :${config.port} (telegram: ${config.telegramMode})\n`);
+    if (config.telegramMode === "polling") {
+      telegram.startPolling();
+      process.stdout.write("telegram polling started\n");
+    } else {
+      process.stdout.write(`telegram webhook endpoint: ${config.baseUrl}/webhook/telegram\n`);
+    }
   });
 }
 

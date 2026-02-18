@@ -5,11 +5,14 @@ Use this checklist before and during real Telegram + agent + draft PR integratio
 ## A) Environment
 
 - [ ] `.env` exists (copied from `.env.example`)
+- [ ] `TELEGRAM_MODE` is set (`polling` recommended for self-hosted)
 - [ ] `TELEGRAM_BOT_TOKEN` is set (not placeholder)
-- [ ] `TELEGRAM_WEBHOOK_SECRET` is set (not placeholder)
-- [ ] `BASE_URL` is set to public reachable HTTPS URL
-- [ ] `DEFAULT_REPO` is set to real `<org>/<repo>`
+- [ ] If `TELEGRAM_MODE=webhook`, `TELEGRAM_WEBHOOK_SECRET` is set
+- [ ] If `TELEGRAM_MODE=webhook`, `BASE_URL` is public reachable HTTPS URL
+- [ ] `AGENT_AUTH_MODE` is set (`session` recommended)
 - [ ] `AGENT_CLI_TEMPLATE` is set (placeholder or real command)
+- [ ] Optional in `session` mode: `AGENT_SESSION_CHECK_CMD` is set
+- [ ] `DEFAULT_REPO` points to an existing snapshot repo
 
 ## B) Local Dependencies
 
@@ -47,4 +50,3 @@ Use this checklist before and during real Telegram + agent + draft PR integratio
 - [ ] failure records include `errorCode`
 - [ ] draft PR link is created when diff exists and policy passes
 - [ ] no PR is created when diff is empty
-
