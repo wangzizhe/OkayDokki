@@ -22,23 +22,50 @@ All actions are auditable by design with strict default safety boundaries (read-
 - Full auditability
 - Pluggable adapters
 
-## Why OkayDokki (Simple Comparison)
+## Why OkayDokki (Detailed Differentiation)
 
-Most chat-to-code tools can generate code quickly.  
-OkayDokki is designed for teams that need controlled delivery and auditability.
+Most AI coding tools optimize for coding speed in IDE or chat.  
+OkayDokki optimizes for **controlled code delivery in production teams**.
 
-| Capability | Typical Chat Coding Tool | OkayDokki |
+Positioning in one line:
+
+- "Chat-first agent orchestration with mandatory human approval and PR-only delivery."
+
+### Category-Level Comparison
+
+| Category | Representative products | What they optimize for | OkayDokki difference |
+|---|---|---|---|
+| IDE coding agents | Cline, Roo Code, Kilo Code, Claude Code, OpenHands | Fast local coding inside editor loops | OkayDokki is IM-first (Telegram), approval-first, and PR-first for remote/team workflows |
+| API/model gateway layers | LiteLLM, New API | Unified model routing and provider abstraction | OkayDokki is not a model gateway; it is a task-to-PR execution system with approval and audit controls |
+| General AI/chat agents | OpenClaw, BLACKBOXAI, Agent Zero | Broad autonomous assistance and generation | OkayDokki narrows scope to software delivery with strict write gates and deterministic workflow states |
+| Consumer character/chat products | Janitor AI, Chub AI, SillyTavern, HammerAI, ISEKAI ZERO, LoreBary | Roleplay, social chat, creator ecosystems | Different problem space; OkayDokki focuses on engineering governance and CI-ready delivery |
+| Creative/media tools | Descript, VidMuse, Lemonade | Media creation/editing | Different domain; OkayDokki is code change lifecycle automation |
+| Games/sandboxes | Pax Historia | Interactive gameplay/simulation | Different domain; OkayDokki is infra and workflow for software teams |
+
+### Capability Comparison (What "Safe by Default" Means)
+
+| Capability | Typical coding agent product | OkayDokki |
 |---|---|---|
-| Trigger from IM | Usually yes | Yes (Telegram first) |
-| Write gating | Often immediate write/run | Explicit approve/reject before write-run |
-| Execution boundary | Varies by tool | Docker sandbox, no network, read-only source input |
-| Delivery path | Mixed (direct edits, commits, PRs) | PR-first (draft PR as standard output) |
-| Audit trail | Often partial logs | Structured JSONL events with status and error codes |
-| Policy controls | Limited or implicit | Diff policy gate (blocked paths, binary patch, size/file limits) |
-| Re-run workflow | Usually manual | Built-in task rerun flow (`/rerun` and API rerun) |
-| API + IM dual control | Not always | Yes (internal API + Telegram flow) |
+| Main interaction surface | IDE panel or web app | Telegram-first IM control |
+| Write behavior | Immediate edit/run is common | Default deny; explicit Approve/Reject required |
+| Execution boundary | Tool-dependent | Docker sandbox (`--network none`, read-only repo snapshot) |
+| Artifact of record | Files or commits | Draft PR as default delivery artifact |
+| Governance model | Optional team process | Built-in state machine + mandatory approval checkpoint |
+| Audit quality | Partial logs in many tools | Structured JSONL audit events (request/decision/run/pr/result) |
+| Policy enforcement | Limited/implicit in many tools | Diff policy gate (blocked paths, binary patch block, size/file limits) |
+| Failure semantics | Often tool-specific | Typed error codes (`SNAPSHOT_MISSING`, `POLICY_VIOLATION`, etc.) |
+| Re-run path | Usually manual retries | First-class rerun via API and Telegram (`/rerun`) |
 
-In short: OkayDokki optimizes for **safe, reviewable, auditable code delivery**, not only generation speed.
+### Strategic Differentiators
+
+- IM-native operations: open a task, approve/reject, and track status from chat without entering IDE.
+- Human-in-the-loop by design: no hidden auto-write path.
+- PR-only output: aligns with existing code review, branch protection, and compliance workflows.
+- Security baseline included: sandbox isolation + no network + read-only source mount.
+- Auditability as a product feature: decision trail, run metadata, diff hash, and outcomes are persisted.
+- Adapter-pluggable architecture: Codex/Claude via CLI today; can extend to HTTP/GitHub Action adapters later.
+
+In short: OkayDokki is built for teams that want AI execution speed **without giving up reviewability, control, and traceability**.
 
 ## Task State Machine
 
