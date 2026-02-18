@@ -52,7 +52,7 @@ export class DockerSandbox {
       "  echo \"test skipped\" > /out/test.log",
       "fi",
       "echo \"$TEST_STATUS\" > /out/test.exit"
-    ].join("; ");
+    ].join("\n");
 
     let dockerError: unknown = null;
     try {
