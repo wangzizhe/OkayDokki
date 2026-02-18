@@ -1,6 +1,7 @@
 import { IMAdapter } from "../adapters/im/imAdapter.js";
 import { config } from "../config.js";
 import { DeliveryStrategy } from "../types.js";
+import { UserPreferenceRepository } from "../repositories/userPreferenceRepository.js";
 import { ChatService } from "./chatService.js";
 import { TaskAction, TaskService, TaskServiceError } from "./taskService.js";
 
@@ -49,6 +50,21 @@ function parseTaskStatusCommand(text: string): { taskId: string } {
     throw new Error("Usage: /task status <task_id>");
   }
   return { taskId: parts[2] };
+}
+
+function parseStrategyCommand(text: string): { mode: "show" | "set" | "clear"; strategy?: DeliveryStrategy } {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length === 1) {
+    return { mode: "show" };
+  }
+  const arg = parts[1]?.toLowerCase();
+  if (arg === "clear") {
+    return { mode: "clear" };
+  }
+  if (arg === "rolling" || arg === "isolated") {
+    return { mode: "set", strategy: arg };
+  }
+  throw new Error("Usage: /strategy [rolling|isolated|clear]");
 }
 
 function parseRerunCommand(text: string): { taskId: string } {
@@ -125,7 +141,8 @@ export class TaskGateway {
   constructor(
     private readonly im: IMAdapter,
     private readonly service: TaskService,
-    private readonly chat: ChatService
+    private readonly chat: ChatService,
+    private readonly prefs: UserPreferenceRepository
   ) {}
 
   bindHandlers(): void {
@@ -141,6 +158,10 @@ export class TaskGateway {
     const trimmed = text.trim();
     if (trimmed.startsWith("/last")) {
       await this.handleLast(chatId);
+      return;
+    }
+    if (trimmed.startsWith("/strategy")) {
+      await this.handleStrategy(chatId, userId, trimmed);
       return;
     }
     if (trimmed.startsWith("/chat")) {
@@ -159,6 +180,18 @@ export class TaskGateway {
     try {
       const parsed = parseTaskCommand(text);
       if (!parsed.strategySpecified) {
+        const remembered = this.prefs.getStrategy(chatId, `tg:${userId}`);
+        if (remembered) {
+          await this.createAndPresentTask(
+            chatId,
+            `tg:${userId}`,
+            parsed.repo,
+            parsed.intent,
+            remembered,
+            parsed.baseBranch
+          );
+          return;
+        }
         const draftId = newDraftId();
         this.pendingTaskDrafts.set(draftId, {
           chatId,
@@ -274,6 +307,38 @@ export class TaskGateway {
     );
   }
 
+  private async handleStrategy(chatId: string, userId: string, text: string): Promise<void> {
+    try {
+      const parsed = parseStrategyCommand(text);
+      const keyUser = `tg:${userId}`;
+      if (parsed.mode === "show") {
+        const strategy = this.prefs.getStrategy(chatId, keyUser);
+        await this.im.sendMessage(
+          chatId,
+          strategy
+            ? `Current strategy preference: ${strategy}`
+            : `No strategy preference set. Default is ${config.deliveryStrategy}.`
+        );
+        return;
+      }
+      if (parsed.mode === "clear") {
+        this.prefs.clearStrategy(chatId, keyUser);
+        await this.im.sendMessage(
+          chatId,
+          `Strategy preference cleared. Default is now ${config.deliveryStrategy}.`
+        );
+        return;
+      }
+      this.prefs.setStrategy(chatId, keyUser, parsed.strategy as DeliveryStrategy);
+      await this.im.sendMessage(chatId, `Strategy preference set to ${parsed.strategy}.`);
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof Error ? err.message : "Failed to set strategy."
+      );
+    }
+  }
+
   private async handleChat(chatId: string, userId: string, text: string): Promise<void> {
     try {
       const parsed = parseChatCommand(text);
@@ -369,6 +434,7 @@ export class TaskGateway {
           return;
         }
         this.pendingTaskDrafts.delete(parsed.draftId);
+        this.prefs.setStrategy(chatId, draft.userId, parsed.strategy);
         await this.createAndPresentTask(
           chatId,
           draft.userId,

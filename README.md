@@ -182,8 +182,12 @@ curl -s http://localhost:3000/api/v1/health/details | jq
 
 - `/task ...`: create an executable task (approval required before write/run).
 - If `/task` omits `strategy=...`, bot asks via inline buttons (`Rolling` / `Isolated`).
+- Strategy choice is remembered for your Telegram session until changed.
 - `/task status <task_id>`: quick task status lookup.
 - `/last`: show latest task summary.
+- `/strategy`: show current remembered strategy.
+- `/strategy rolling|isolated`: set remembered strategy.
+- `/strategy clear`: clear remembered strategy.
 - `/rerun <task_id>`: rerun a previous task as a new task.
 - `/chat ...`: chat-only mode for ideation/planning (no task state transition, no PR).
 - `/chat repo=<repo> ...`: chat against a specific repo snapshot context.

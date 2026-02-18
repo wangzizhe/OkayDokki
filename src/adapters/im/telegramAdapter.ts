@@ -94,6 +94,7 @@ export class TelegramAdapter implements IMAdapter {
       (messageText.startsWith("/task") ||
         messageText.startsWith("/rerun") ||
         messageText.startsWith("/last") ||
+        messageText.startsWith("/strategy") ||
         messageText.startsWith("/chat")) &&
       this.taskHandler
     ) {

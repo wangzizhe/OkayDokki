@@ -15,12 +15,14 @@ import { getHealthDetails } from "./services/health.js";
 import { HostAgentExecutor } from "./services/hostAgentExecutor.js";
 import { ChatService } from "./services/chatService.js";
 import { ChatMemoryRepository } from "./repositories/chatMemoryRepository.js";
+import { UserPreferenceRepository } from "./repositories/userPreferenceRepository.js";
 
 async function main(): Promise<void> {
   const db = createDb();
   initDb(db);
 
   const repo = new TaskRepository(db);
+  const userPrefs = new UserPreferenceRepository(db);
   const chatMemory = new ChatMemoryRepository(db);
   const audit = new AuditLogger();
   const agent = new CliAgentAdapter(config.agentCliTemplate);
@@ -52,7 +54,7 @@ async function main(): Promise<void> {
     config.chatTimeoutMs,
     audit
   );
-  const gateway = new TaskGateway(telegram, taskService, chatService);
+  const gateway = new TaskGateway(telegram, taskService, chatService, userPrefs);
 
   gateway.bindHandlers();
 
