@@ -1,83 +1,168 @@
 # OkayDokki
 
-[![CI](https://img.shields.io/badge/CI-enabled-brightgreen)](#ci)
-![OkayDokki Flow](docs/assets/okaydokki-flow.svg)
+<p align="center">
+  <a href="https://github.com/wangzizhe/OkayDokki/actions/workflows/ci.yml" style="text-decoration:none;"><img src="https://github.com/wangzizhe/OkayDokki/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>&nbsp;
+  <a href="LICENSE" style="text-decoration:none;"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" /></a>&nbsp;
+  <a href="https://nodejs.org/" style="text-decoration:none;"><img src="https://img.shields.io/badge/node-%3E%3D22-339933.svg" alt="Node >= 22" /></a>
+</p>
 
-Text your coding agent from Telegram. Approve changes, run safely, and ship via Draft PRs.
+Text your AI agent. Approve safely, run in sandbox, ship via Draft PRs.
 
-OkayDokki is a human-in-the-loop AI code delivery agent. It turns chat commands into auditable code changes with mandatory approval and PR-only output.
+OkayDokki is a human-in-the-loop AI code delivery agent for Telegram:
+- chat like you talk to an engineer,
+- require explicit approval before write/run,
+- deliver only through Draft PRs with audit logs.
 
-## Why OkayDokki
+---
 
-- Approval-first: no write/run without explicit approve.
-- Safe-by-default: sandbox execution and policy guards.
-- PR-first delivery: no direct push to `main`.
+Message your AI agent from anywhere, anytime.
 
-## 30-Second Flow
+![OkayDokki ChatBot](docs/assets/chat_full.png)
 
-1. Send `/task ...` in Telegram.
-2. Choose strategy (`rolling` / `isolated`) or use your saved default.
-3. Approve the task.
-4. OkayDokki runs tests and opens a Draft PR.
+It works in a sandbox and opens a Draft PR. You approve before merge.
 
-## Quick Start (10 min)
+![OkayDokki DraftPR](docs/assets/draftPR.png)
 
-1. Install dependencies:
+## Quick Start
+
+1. Install dependencies
 
 ```bash
 npm install
 ```
 
-2. Prepare env file:
+2. Create env file
 
 ```bash
 cp .env.example .env
 ```
 
-3. Set minimum required `.env` values:
+3. Set minimal required env
 
 - `TELEGRAM_BOT_TOKEN`
 - `DEFAULT_REPO`
 - `AGENT_CLI_TEMPLATE`
 
-4. Initialize DB:
+4. Init DB
 
 ```bash
 npm run db:init
 ```
 
-5. Run checks:
+5. Check runtime prerequisites
 
 ```bash
 npm run preflight
 ```
 
-6. Start service:
+6. Start service
 
 ```bash
 npm run dev
 ```
 
-7. In Telegram, send your first task:
+## Telegram Usage
+
+### 1) Normal message (Chat)
+Send a plain message (without command) to discuss ideas, tradeoffs, and next steps.
+
+### 2) `/plan ...` (Plan first, then run)
+Generate a plan, then choose:
+- `Approve Plan` -> create task and run
+- `Revise Plan` -> reply with feedback to get `v2`, `v3`, ...
+- `Reject Plan` -> close this plan session
+
+Example:
 
 ```text
-/task repo=okd-sandbox append one line "Updated by OkayDokki" to README.md and keep npm test passing
+/plan repo=okd-sandbox refactor task gateway and add tests
 ```
 
-## Telegram Commands
+### 3) `/task ...` (Run directly)
+Create executable task directly (still requires approval before write/run).
 
-- `/task repo=<repo> <intent>`: create executable task.
-- Approval message is a 4-line compact summary by default; tap `Details` for full policy and full intent.
-- `/task status <task_id>`: check one task status.
-- `/last`: show latest task summary.
-- `/rerun <task_id>`: rerun as a new task.
-- `/strategy`: show your current strategy preference.
-- `/strategy rolling|isolated`: set your strategy preference.
-- `/strategy clear`: clear strategy preference.
-- `/chat ...`: chat-only ideation mode.
-- `/chat repo=<repo> ...`: chat against a specific repo snapshot.
-- `/chat reset`: clear chat short-memory.
-- `/chat cancel`: cancel active chat request.
+Example:
+
+```text
+/task repo=okd-sandbox add one line "Updated by OkayDokki" to README.md and keep npm test passing
+```
+
+## Core Commands
+
+- `/task status <task_id>`: show task status
+- `/rerun <task_id>`: rerun as a new task
+- `/help`: show compact command guide
+- `/last`: show latest task summary
+
+## Advanced Commands
+
+- `/strategy`: show your strategy preference
+- `/strategy rolling|isolated`: set preference
+- `/strategy clear`: reset preference to default
+- `/chat repo=<repo> ...`: optional explicit chat command
+- `/chat reset`: clear chat short-memory
+- `/chat cancel`: cancel active chat request
+
+## Failure Guide
+
+| Code | Meaning | Action |
+|---|---|---|
+| `POLICY_VIOLATION` | Diff violates policy (blocked path, size/files limit, or binary patch) | Reduce task scope or adjust `.env` policy limits |
+| `AGENT_FAILED` | Agent CLI execution failed | Verify `AGENT_CLI_TEMPLATE` and provider login/session |
+| `SANDBOX_FAILED` | Sandbox validation/test failed | Verify Docker/image and allowed test command |
+| `PR_CREATE_FAILED` | Draft PR creation failed | Verify git push permission and `gh auth status` |
+
+## Live Demo Script (5 min)
+
+Run service:
+
+```bash
+npm run dev
+```
+
+Then in Telegram, send these in order:
+
+1. Chat (normal message)
+
+```text
+What are 2 risks of rolling PR strategy in this repo?
+```
+
+2. Plan request
+
+```text
+/plan repo=okd-sandbox refactor task gateway routing and add tests for plan revision flow
+```
+
+3. Click `Revise Plan`, send one feedback message, then click `Approve Plan`
+
+```text
+Keep the plan very short, in English, and include one rollback check.
+```
+
+4. Click `Approve` on task approval summary (optional: `/rerun <task_id>`)
+
+```text
+/rerun <task_id>
+```
+
+Expected outcome:
+- Task reaches `COMPLETED` or `FAILED` with reason
+- Tests result is reported
+- Draft PR link appears when diff is non-empty and PR creation succeeds
+
+## Troubleshooting Checklist
+
+- Preflight failed
+  - Run `npm run preflight` and fix all `[FAIL]` items first
+- `POLICY_VIOLATION`
+  - Reduce task scope or adjust `.env` policy limits/path guards
+- `AGENT_FAILED`
+  - Verify `AGENT_CLI_TEMPLATE` and provider login/session status
+- `SANDBOX_FAILED`
+  - Verify Docker daemon/image and allowed test command
+- `PR_CREATE_FAILED`
+  - Verify git remote/push rights and `gh auth status`
 
 ## Minimal Config
 
@@ -91,30 +176,17 @@ npm run dev
 
 ## Safety Defaults
 
-- Approval required before write/run.
-- Draft PR only.
-- Diff policy guard (blocked paths, size/file limits, binary controls).
-- Full audit log in `audit.jsonl`.
+- Approval required before write/run
+- Draft PR only
+- Diff policy guard (blocked paths, size/file limits, binary controls)
+- Full audit log in `audit.jsonl`
 
-## Known MVP Limits
+## Docs
 
-- `rolling` mode behaves like stacked PR workflow.
-- `/chat` is short-memory assistance, not autonomous execution.
-- Current focus is Telegram-first self-hosted deployment.
-
-## More Docs
-
-- Contracts:
-  - `docs/contracts/task-lifecycle.md`
-  - `docs/contracts/gateway-api.md`
-- Runbooks:
-  - `docs/runbook-live-test.md`
-- Provider auth:
-  - `docs/provider-auth.md`
-
-## CI
-
-CI is enabled via GitHub Actions (`.github/workflows/ci.yml`) and runs `npm ci`, `npm run typecheck`, and `npm run build`.
+- `docs/contracts/task-lifecycle.md`
+- `docs/contracts/gateway-api.md`
+- `docs/runbook-live-test.md`
+- `docs/provider-auth.md`
 
 ## License
 

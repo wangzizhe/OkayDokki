@@ -90,15 +90,7 @@ export class TelegramAdapter implements IMAdapter {
 
   private async handleUpdate(update: Update): Promise<void> {
     const messageText = update.message?.text ?? "";
-    if (
-      (messageText.startsWith("/task") ||
-        messageText.startsWith("/plan") ||
-        messageText.startsWith("/rerun") ||
-        messageText.startsWith("/last") ||
-        messageText.startsWith("/strategy") ||
-        messageText.startsWith("/chat")) &&
-      this.taskHandler
-    ) {
+    if (messageText && this.taskHandler) {
       await this.taskHandler(
         String(update.message?.chat.id ?? ""),
         String(update.message?.from?.id ?? ""),

@@ -119,8 +119,18 @@ type CallbackAction =
   | { kind: "task_action"; action: TaskAction; taskId: string }
   | { kind: "select_strategy"; strategy: DeliveryStrategy; draftId: string }
   | { kind: "details"; taskId: string }
-  | { kind: "plan_approve"; planId: string }
-  | { kind: "plan_reject"; planId: string };
+  | { kind: "plan_approve"; planId: string; version: number }
+  | { kind: "plan_revise"; planId: string; version: number }
+  | { kind: "plan_reject"; planId: string; version: number };
+
+function parsePlanCallbackToken(token: string): { planId: string; version: number } {
+  const [planId, rawVersion] = token.split("@");
+  const version = Number(rawVersion);
+  if (!planId || !Number.isFinite(version) || version < 1) {
+    throw new Error("Invalid plan callback token.");
+  }
+  return { planId, version };
+}
 
 function parseAction(raw: string): CallbackAction {
   const [prefix, value] = raw.split(":");
@@ -146,10 +156,16 @@ function parseAction(raw: string): CallbackAction {
     return { kind: "details", taskId: value };
   }
   if (prefix === "pap") {
-    return { kind: "plan_approve", planId: value };
+    const parsed = parsePlanCallbackToken(value);
+    return { kind: "plan_approve", planId: parsed.planId, version: parsed.version };
+  }
+  if (prefix === "prv") {
+    const parsed = parsePlanCallbackToken(value);
+    return { kind: "plan_revise", planId: parsed.planId, version: parsed.version };
   }
   if (prefix === "prj") {
-    return { kind: "plan_reject", planId: value };
+    const parsed = parsePlanCallbackToken(value);
+    return { kind: "plan_reject", planId: parsed.planId, version: parsed.version };
   }
   throw new Error(`Unsupported callback: ${prefix}`);
 }
@@ -169,6 +185,7 @@ type PendingPlan = {
   intent: string;
   strategy: DeliveryStrategy;
   baseBranch: string;
+  version: number;
   planText: string;
 };
 
@@ -176,6 +193,7 @@ export class TaskGateway {
   private readonly runningApprovals = new Set<string>();
   private readonly pendingTaskDrafts = new Map<string, PendingTaskDraft>();
   private readonly pendingPlans = new Map<string, PendingPlan>();
+  private readonly awaitingPlanFeedback = new Map<string, string>();
 
   constructor(
     private readonly im: IMAdapter,
@@ -195,6 +213,11 @@ export class TaskGateway {
 
   private async handleTask(chatId: string, userId: string, text: string): Promise<void> {
     const trimmed = text.trim();
+    const sessionKey = this.planFeedbackSessionKey(chatId, `tg:${userId}`);
+    if (trimmed.startsWith("/help")) {
+      await this.handleHelp(chatId);
+      return;
+    }
     if (trimmed.startsWith("/last")) {
       await this.handleLast(chatId);
       return;
@@ -219,8 +242,21 @@ export class TaskGateway {
       await this.handlePlan(chatId, userId, text);
       return;
     }
+    if (trimmed.startsWith("/task")) {
+      await this.handleTaskCreate(chatId, userId, text);
+      return;
+    }
+    if (trimmed.startsWith("/")) {
+      await this.handleHelp(chatId);
+      return;
+    }
 
-    await this.handleTaskCreate(chatId, userId, text);
+    if (this.awaitingPlanFeedback.has(sessionKey)) {
+      await this.handlePlanFeedback(chatId, `tg:${userId}`, trimmed, sessionKey);
+      return;
+    }
+
+    await this.handleDefaultChat(chatId, userId, text);
   }
 
   private async handleTaskCreate(chatId: string, userId: string, text: string): Promise<void> {
@@ -305,19 +341,12 @@ export class TaskGateway {
       const planText = await this.chat.ask(
         chatId,
         userId,
-        `Create a concise coding plan for this goal. Output 3-6 numbered steps and include key risk checks: ${intent}`,
+        `Create a concise coding plan for this goal. Respond in English only. Use at most 3 bullet points and include key risk checks: ${intent}`,
         repo
       );
       const planId = newDraftId();
-      this.pendingPlans.set(planId, { chatId, userId, repo, intent, strategy, baseBranch, planText });
-      await this.im.sendMessage(
-        chatId,
-        [`Plan for: ${intent}`, "", planText].join("\n"),
-        [[
-          { text: "Approve Plan", callbackData: `pap:${planId}` },
-          { text: "Reject Plan", callbackData: `prj:${planId}` }
-        ]]
-      );
+      this.pendingPlans.set(planId, { chatId, userId, repo, intent, strategy, baseBranch, version: 1, planText });
+      await this.sendPlanDraft(chatId, planId);
     } catch (err) {
       await this.im.sendMessage(
         chatId,
@@ -332,7 +361,8 @@ export class TaskGateway {
     repo: string,
     intent: string,
     deliveryStrategy: DeliveryStrategy,
-    baseBranch: string
+    baseBranch: string,
+    options?: { showPlanTip?: boolean }
   ): Promise<void> {
     const result = this.service.createTask({
       source: "telegram",
@@ -363,41 +393,10 @@ export class TaskGateway {
       chatId,
       `Task parsed: ${result.task.intent}\nStatus: WAIT_APPROVE_WRITE`
     );
+    if (options?.showPlanTip ?? true) {
+      await this.im.sendMessage(chatId, "Tip: want a plan first? Use /plan <goal>.");
+    }
     await this.sendApprovalPrompt(chatId, result.task.taskId);
-  }
-
-  private async createAndRunTask(
-    chatId: string,
-    triggerUser: string,
-    repo: string,
-    intent: string,
-    deliveryStrategy: DeliveryStrategy,
-    baseBranch: string
-  ): Promise<void> {
-    const created = this.service.createTask({
-      source: "telegram",
-      triggerUser,
-      repo,
-      intent,
-      agent: "codex",
-      deliveryStrategy,
-      baseBranch
-    });
-    if (created.needsClarify) {
-      await this.im.sendMessage(
-        chatId,
-        `Task parsed but needs clarify. Missing snapshot for '${repo}'. Expected: ${created.expectedPath ?? "n/a"}`
-      );
-      return;
-    }
-    const taskId = created.task.taskId;
-    if (this.runningApprovals.has(taskId)) {
-      await this.im.sendMessage(chatId, `Task ${taskId} is already running.`);
-      return;
-    }
-    this.runningApprovals.add(taskId);
-    await this.im.sendMessage(chatId, `Plan approved. Task ${taskId} accepted. Status: RUNNING`);
-    void this.handleApproveAsync(chatId, triggerUser.replace(/^tg:/, ""), taskId);
   }
 
   private async handleTaskStatus(chatId: string, text: string): Promise<void> {
@@ -438,6 +437,18 @@ export class TaskGateway {
         `Repo: ${latest.repo}`,
         `Branch: ${latest.branch}`,
         `Intent: ${latest.intent}`
+      ].join("\n")
+    );
+  }
+
+  private async handleHelp(chatId: string): Promise<void> {
+    await this.im.sendMessage(
+      chatId,
+      [
+        "How to use OkayDokki:",
+        "- Send a normal message: chat with the agent (no write).",
+        "- /plan <goal>: generate a plan, then approve to run.",
+        "- /task <goal>: run directly with approval."
       ].join("\n")
     );
   }
@@ -498,6 +509,15 @@ export class TaskGateway {
         err instanceof Error ? err.message : "Failed to parse chat command."
       );
     }
+  }
+
+  private async handleDefaultChat(chatId: string, userId: string, text: string): Promise<void> {
+    const prompt = text.trim();
+    if (!prompt) {
+      return;
+    }
+    await this.im.sendMessage(chatId, "Chat accepted. Thinking...");
+    void this.handleChatAsync(chatId, userId, config.defaultRepo, prompt);
   }
 
   private async handleChatAsync(
@@ -586,19 +606,57 @@ export class TaskGateway {
           await this.im.sendMessage(chatId, "Plan approval expired. Please run /plan again.");
           return;
         }
+        if (plan.version !== parsed.version) {
+          await this.im.sendMessage(chatId, "Plan is outdated. Please review the latest version.");
+          return;
+        }
         this.pendingPlans.delete(parsed.planId);
-        await this.createAndRunTask(
+        this.awaitingPlanFeedback.delete(this.planFeedbackSessionKey(plan.chatId, plan.userId));
+        await this.im.sendMessage(chatId, `Plan approved. Creating task in WAIT_APPROVE_WRITE...`);
+        await this.createAndPresentTask(
           chatId,
           plan.userId,
           plan.repo,
           plan.intent,
           plan.strategy,
-          plan.baseBranch
+          plan.baseBranch,
+          { showPlanTip: false }
+        );
+        return;
+      }
+      if (parsed.kind === "plan_revise") {
+        const plan = this.pendingPlans.get(parsed.planId);
+        if (!plan) {
+          await this.im.sendMessage(chatId, "Plan revision expired. Please run /plan again.");
+          return;
+        }
+        if (plan.version !== parsed.version) {
+          await this.im.sendMessage(chatId, "Plan is outdated. Please review the latest version.");
+          return;
+        }
+        if (plan.chatId !== chatId || plan.userId !== `tg:${userId}`) {
+          await this.im.sendMessage(chatId, "This plan is not owned by your session.");
+          return;
+        }
+        this.awaitingPlanFeedback.set(this.planFeedbackSessionKey(chatId, `tg:${userId}`), parsed.planId);
+        await this.im.sendMessage(
+          chatId,
+          `Plan v${plan.version} selected for revision. Reply with your feedback in one message.`
         );
         return;
       }
       if (parsed.kind === "plan_reject") {
+        const plan = this.pendingPlans.get(parsed.planId);
+        if (!plan) {
+          await this.im.sendMessage(chatId, "Plan already closed.");
+          return;
+        }
+        if (plan.version !== parsed.version) {
+          await this.im.sendMessage(chatId, "Plan is outdated. Please review the latest version.");
+          return;
+        }
         this.pendingPlans.delete(parsed.planId);
+        this.awaitingPlanFeedback.delete(this.planFeedbackSessionKey(plan.chatId, plan.userId));
         await this.im.sendMessage(chatId, "Plan rejected.");
         return;
       }
@@ -637,7 +695,7 @@ export class TaskGateway {
         const taskId = data.split(":")[1] ?? "";
         await this.im.sendMessage(
           chatId,
-          `Task ${taskId} failed. Code: ${err.code}\nHint: ${this.failureHint(err.code)}`
+          this.buildFailureMessage(taskId, err)
         );
         return;
       }
@@ -663,7 +721,7 @@ export class TaskGateway {
       if (err instanceof TaskServiceError && err.statusCode === 500) {
         await this.im.sendMessage(
           chatId,
-          `Task ${taskId} failed. Code: ${err.code}\nHint: ${this.failureHint(err.code)}`
+          this.buildFailureMessage(taskId, err)
         );
         return;
       }
@@ -688,6 +746,73 @@ export class TaskGateway {
         { text: "Reject", callbackData: `rej:${taskId}` }
       ]
     ]);
+  }
+
+  private async sendPlanDraft(chatId: string, planId: string): Promise<void> {
+    const plan = this.pendingPlans.get(planId);
+    if (!plan) {
+      return;
+    }
+    await this.im.sendMessage(
+      chatId,
+      [`Plan v${plan.version} for: ${plan.intent}`, "", plan.planText].join("\n"),
+      [[
+        { text: "Approve Plan", callbackData: `pap:${planId}@${plan.version}` },
+        { text: "Revise Plan", callbackData: `prv:${planId}@${plan.version}` },
+        { text: "Reject Plan", callbackData: `prj:${planId}@${plan.version}` }
+      ]]
+    );
+  }
+
+  private async handlePlanFeedback(
+    chatId: string,
+    userId: string,
+    feedback: string,
+    sessionKey: string
+  ): Promise<void> {
+    const planId = this.awaitingPlanFeedback.get(sessionKey);
+    if (!planId) {
+      return;
+    }
+    const plan = this.pendingPlans.get(planId);
+    if (!plan) {
+      this.awaitingPlanFeedback.delete(sessionKey);
+      await this.im.sendMessage(chatId, "Plan revision expired. Please run /plan again.");
+      return;
+    }
+    if (plan.chatId !== chatId || plan.userId !== userId) {
+      await this.im.sendMessage(chatId, "This plan is not owned by your session.");
+      return;
+    }
+
+    this.awaitingPlanFeedback.delete(sessionKey);
+    await this.im.sendMessage(chatId, `Revision accepted for plan v${plan.version}. Thinking...`);
+    try {
+      const revisedPlan = await this.chat.ask(
+        chatId,
+        userId,
+        [
+          "Revise the coding plan based on user feedback.",
+          "Respond in English only.",
+          `Goal: ${plan.intent}`,
+          "Current plan:",
+          plan.planText,
+          "User feedback:",
+          feedback,
+          "Keep it concise, use at most 3 bullet points, and include risk checks."
+        ].join("\n"),
+        plan.repo
+      );
+      plan.planText = revisedPlan;
+      plan.version += 1;
+      this.pendingPlans.set(planId, plan);
+      await this.sendPlanDraft(chatId, planId);
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof Error ? err.message : "Failed to revise plan."
+      );
+    }
   }
 
   private buildApprovalSummary(taskId: string): string {
@@ -732,6 +857,49 @@ export class TaskGateway {
       PR_CREATE_FAILED: "Verify git remote/push permissions and gh auth."
     };
     return hints[code] ?? "Check audit log for details.";
+  }
+
+  private buildFailureMessage(taskId: string, err: TaskServiceError): string {
+    const lines = [`Task ${taskId} failed. Code: ${err.code}`];
+    const detail = this.failureDetail(err);
+    if (detail) {
+      lines.push(`Reason: ${detail}`);
+    }
+    lines.push(`Hint: ${this.failureHint(err.code)}`);
+    return lines.join("\n");
+  }
+
+  private failureDetail(err: TaskServiceError): string | null {
+    if (err.code === "POLICY_VIOLATION") {
+      const raw = err.message.replace(/^Diff policy violation:\s*/i, "").trim();
+      if (!raw) {
+        return null;
+      }
+      const short = raw
+        .split(";")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+        .join("; ");
+      return short || raw;
+    }
+    if (err.code === "TEST_FAILED") {
+      return "test command exited non-zero";
+    }
+    if (err.code === "AGENT_FAILED") {
+      return "agent command failed to produce a valid result";
+    }
+    if (err.code === "SANDBOX_FAILED") {
+      return "sandbox validation failed (docker/run/test)";
+    }
+    if (err.code === "PR_CREATE_FAILED") {
+      return "draft PR creation step failed";
+    }
+    return null;
+  }
+
+  private planFeedbackSessionKey(chatId: string, userId: string): string {
+    return `${chatId}:${userId}`;
   }
 }
 
