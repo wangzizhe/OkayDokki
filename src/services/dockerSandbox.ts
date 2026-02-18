@@ -35,8 +35,8 @@ export class DockerSandbox {
 
     const script = [
       "set -eu",
-      "cp -a /repo/. /work",
-      "cp -a /candidate/. /work",
+      "tar -C /repo --exclude=.git -cf - . | tar -C /work -xf -",
+      "tar -C /candidate --exclude=.git -cf - . | tar -C /work -xf -",
       "cd /work",
       "TEST_STATUS=0",
       "if [ -n \"${TEST_CMD:-}\" ]; then",
