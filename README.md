@@ -5,11 +5,12 @@
   <a href="LICENSE" style="text-decoration:none;"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" /></a>&nbsp;
   <a href="https://nodejs.org/" style="text-decoration:none;"><img src="https://img.shields.io/badge/node-%3E%3D22-339933.svg" alt="Node >= 22" /></a>
 </p>
+Text your AI agent. Work from anywhere, anytime. 
 
-Text your AI agent. Approve safely, run in sandbox, ship via Draft PRs.
+Approve safely, run in sandbox, ship via Draft PRs.
 
 OkayDokki is a human-in-the-loop AI code delivery agent for Telegram:
-- chat like you talk to an engineer,
+- chat and plan like you talk to a developer,
 - require explicit approval before write/run,
 - deliver only through Draft PRs with audit logs.
 
@@ -103,15 +104,6 @@ Example:
 - `/chat reset`: clear chat short-memory
 - `/chat cancel`: cancel active chat request
 
-## Failure Guide
-
-| Code | Meaning | Action |
-|---|---|---|
-| `POLICY_VIOLATION` | Diff violates policy (blocked path, size/files limit, or binary patch) | Reduce task scope or adjust `.env` policy limits |
-| `AGENT_FAILED` | Agent CLI execution failed | Verify `AGENT_CLI_TEMPLATE` and provider login/session |
-| `SANDBOX_FAILED` | Sandbox validation/test failed | Verify Docker/image and allowed test command |
-| `PR_CREATE_FAILED` | Draft PR creation failed | Verify git push permission and `gh auth status` |
-
 ## Live Demo Script (5 min)
 
 Run service:
@@ -150,6 +142,15 @@ Expected outcome:
 - Task reaches `COMPLETED` or `FAILED` with reason
 - Tests result is reported
 - Draft PR link appears when diff is non-empty and PR creation succeeds
+
+## Failure Guide
+
+| Code | Meaning | Action |
+|---|---|---|
+| `POLICY_VIOLATION` | Diff violates policy (blocked path, size/files limit, or binary patch) | Reduce task scope or adjust `.env` policy limits |
+| `AGENT_FAILED` | Agent CLI execution failed | Verify `AGENT_CLI_TEMPLATE` and provider login/session |
+| `SANDBOX_FAILED` | Sandbox validation/test failed | Verify Docker/image and allowed test command |
+| `PR_CREATE_FAILED` | Draft PR creation failed | Verify git push permission and `gh auth status` |
 
 ## Troubleshooting Checklist
 
