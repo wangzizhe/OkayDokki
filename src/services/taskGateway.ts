@@ -106,7 +106,8 @@ function parseChatCommand(text: string): { repo: string; prompt: string; reset: 
 
 type CallbackAction =
   | { kind: "task_action"; action: TaskAction; taskId: string }
-  | { kind: "select_strategy"; strategy: DeliveryStrategy; draftId: string };
+  | { kind: "select_strategy"; strategy: DeliveryStrategy; draftId: string }
+  | { kind: "details"; taskId: string };
 
 function parseAction(raw: string): CallbackAction {
   const [prefix, value] = raw.split(":");
@@ -127,6 +128,9 @@ function parseAction(raw: string): CallbackAction {
   }
   if (prefix === "tsi") {
     return { kind: "select_strategy", strategy: "isolated", draftId: value };
+  }
+  if (prefix === "dtl") {
+    return { kind: "details", taskId: value };
   }
   throw new Error(`Unsupported callback: ${prefix}`);
 }
@@ -261,8 +265,7 @@ export class TaskGateway {
       chatId,
       `Task parsed: ${result.task.intent}\nStatus: WAIT_APPROVE_WRITE`
     );
-    await this.im.sendMessage(chatId, this.buildApprovalSummary(result.task.taskId));
-    await this.sendApprovalButtons(chatId, result.task.taskId);
+    await this.sendApprovalPrompt(chatId, result.task.taskId);
   }
 
   private async handleTaskStatus(chatId: string, text: string): Promise<void> {
@@ -406,8 +409,7 @@ export class TaskGateway {
         chatId,
         `Rerun created from: ${parsed.taskId}\nNew task: ${rerun.task.taskId}\nStatus: WAIT_APPROVE_WRITE`
       );
-      await this.im.sendMessage(chatId, this.buildApprovalSummary(rerun.task.taskId));
-      await this.sendApprovalButtons(chatId, rerun.task.taskId);
+      await this.sendApprovalPrompt(chatId, rerun.task.taskId);
     } catch (err) {
       await this.im.sendMessage(
         chatId,
@@ -445,6 +447,10 @@ export class TaskGateway {
         );
         return;
       }
+      if (parsed.kind === "details") {
+        await this.im.sendMessage(chatId, this.buildApprovalDetails(parsed.taskId));
+        return;
+      }
 
       const { action, taskId } = parsed;
       if (action === "approve") {
@@ -462,8 +468,7 @@ export class TaskGateway {
 
       if (action === "retry") {
         await this.im.sendMessage(chatId, `Task ${taskId} moved to WAIT_APPROVE_WRITE.`);
-        await this.im.sendMessage(chatId, this.buildApprovalSummary(taskId));
-        await this.sendApprovalButtons(chatId, taskId);
+        await this.sendApprovalPrompt(chatId, taskId);
         return;
       }
 
@@ -519,9 +524,10 @@ export class TaskGateway {
     }
   }
 
-  private async sendApprovalButtons(chatId: string, taskId: string): Promise<void> {
-    await this.im.sendMessage(chatId, "Approve write and run?", [
+  private async sendApprovalPrompt(chatId: string, taskId: string): Promise<void> {
+    await this.im.sendMessage(chatId, this.buildApprovalSummary(taskId), [
       [
+        { text: "Details", callbackData: `dtl:${taskId}` },
         { text: "Approve", callbackData: `apv:${taskId}` },
         { text: "Reject", callbackData: `rej:${taskId}` }
       ]
@@ -533,6 +539,23 @@ export class TaskGateway {
     const blocked = config.blockedPathPrefixes.join(", ");
     return [
       "Approval summary:",
+      `- Task: ${task.taskId}`,
+      `- Repo: ${task.repo}`,
+      `- Branch: ${task.branch}`,
+      `- Intent: ${task.intent}`,
+      `- Delivery strategy: ${task.deliveryStrategy ?? config.deliveryStrategy}`,
+      `- Base branch: ${task.baseBranch ?? config.baseBranch}`,
+      `- Test command: ${config.defaultTestCommand}`,
+      "",
+      "Tap Details to view full policy limits."
+    ].join("\n");
+  }
+
+  private buildApprovalDetails(taskId: string): string {
+    const task = this.service.getTask(taskId);
+    const blocked = config.blockedPathPrefixes.join(", ");
+    return [
+      "Approval details:",
       `- Task: ${task.taskId}`,
       `- Repo: ${task.repo}`,
       `- Branch: ${task.branch}`,

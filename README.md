@@ -67,6 +67,7 @@ npm run dev
 ## Telegram Commands
 
 - `/task repo=<repo> <intent>`: create executable task.
+- Approval message is compact by default; tap `Details` to view full policy limits.
 - `/task status <task_id>`: check one task status.
 - `/last`: show latest task summary.
 - `/rerun <task_id>`: rerun as a new task.
