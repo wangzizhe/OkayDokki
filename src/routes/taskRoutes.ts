@@ -1,11 +1,14 @@
 import express from "express";
 import { TaskAction, TaskService, TaskServiceError, isTaskAction } from "../services/taskService.js";
+import { config } from "../config.js";
 
 type CreateTaskBody = {
   trigger_user?: string;
   repo?: string;
   intent?: string;
   agent?: string;
+  delivery_strategy?: "rolling" | "isolated";
+  base_branch?: string;
 };
 
 type ActionBody = {
@@ -38,7 +41,9 @@ export function createTaskRoutes(service: TaskService): express.Router {
         triggerUser: body.trigger_user,
         repo: body.repo,
         intent: body.intent,
-        agent: body.agent ?? "codex"
+        agent: body.agent ?? "codex",
+        deliveryStrategy: body.delivery_strategy ?? config.deliveryStrategy,
+        baseBranch: body.base_branch ?? config.baseBranch
       });
 
       res.status(201).json({

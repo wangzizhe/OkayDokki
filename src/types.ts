@@ -7,6 +7,8 @@ export type TaskStatus =
   | "COMPLETED"
   | "FAILED";
 
+export type DeliveryStrategy = "rolling" | "isolated";
+
 export type EventType =
   | "REQUEST"
   | "RETRY"
@@ -14,7 +16,10 @@ export type EventType =
   | "REJECT"
   | "RUN"
   | "PR_CREATED"
-  | "FAILED";
+  | "FAILED"
+  | "CHAT_REQUEST"
+  | "CHAT_RESPONSE"
+  | "CHAT_FAILED";
 
 export interface Source {
   im: "telegram" | "api";
@@ -31,6 +36,8 @@ export interface TaskSpec {
   status: TaskStatus;
   createdAt: string;
   approvedBy: string | null;
+  deliveryStrategy?: DeliveryStrategy;
+  baseBranch?: string;
 }
 
 export interface AgentResult {

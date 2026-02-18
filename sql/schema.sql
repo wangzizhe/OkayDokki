@@ -8,7 +8,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   agent TEXT NOT NULL,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  approved_by TEXT
+  approved_by TEXT,
+  delivery_strategy TEXT NOT NULL DEFAULT 'rolling',
+  base_branch TEXT NOT NULL DEFAULT 'main'
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);

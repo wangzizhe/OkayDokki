@@ -1,5 +1,5 @@
 import { TaskRepository } from "../repositories/taskRepository.js";
-import { TaskRunResult, TaskSpec } from "../types.js";
+import { DeliveryStrategy, TaskRunResult, TaskSpec } from "../types.js";
 import { newTaskId } from "../utils/id.js";
 import { repoSnapshotExists, resolveRepoSnapshotPath } from "../utils/repoSnapshot.js";
 import { AuditLogger } from "./auditLogger.js";
@@ -44,6 +44,8 @@ export interface CreateTaskInput {
   repo: string;
   intent: string;
   agent?: string;
+  deliveryStrategy?: DeliveryStrategy;
+  baseBranch?: string;
 }
 
 export interface CreateTaskResult {
@@ -62,11 +64,14 @@ export interface ListTasksResult {
 }
 
 export class TaskService {
+  private readonly runningApprovals = new Set<string>();
+
   constructor(
     private readonly repo: TaskRepository,
     private readonly audit: AuditLogger,
     private readonly runner: TaskRunner,
-    private readonly repoSnapshotRoot: string
+    private readonly repoSnapshotRoot: string,
+    private readonly defaults: { deliveryStrategy: DeliveryStrategy; baseBranch: string }
   ) {}
 
   createTask(input: CreateTaskInput): CreateTaskResult {
@@ -82,7 +87,9 @@ export class TaskService {
       agent: input.agent ?? "codex",
       status,
       createdAt: nowIso(),
-      approvedBy: null
+      approvedBy: null,
+      deliveryStrategy: input.deliveryStrategy ?? this.defaults.deliveryStrategy,
+      baseBranch: input.baseBranch ?? this.defaults.baseBranch
     };
 
     this.repo.create(task);
@@ -120,7 +127,9 @@ export class TaskService {
       triggerUser: actor,
       repo: original.repo,
       intent: original.intent,
-      agent: original.agent
+      agent: original.agent,
+      deliveryStrategy: original.deliveryStrategy ?? this.defaults.deliveryStrategy,
+      baseBranch: original.baseBranch ?? this.defaults.baseBranch
     });
   }
 
@@ -198,6 +207,14 @@ export class TaskService {
         "STATE_CONFLICT"
       );
     }
+    if (this.runningApprovals.has(taskId)) {
+      throw new TaskServiceError(
+        `Task ${taskId} is already running.`,
+        409,
+        "STATE_CONFLICT"
+      );
+    }
+    this.runningApprovals.add(taskId);
 
     const approvedTask = this.repo.transition(taskId, "RUNNING", actor);
     this.audit.append({
@@ -278,6 +295,8 @@ export class TaskService {
         500,
         "RUN_FAILED"
       );
+    } finally {
+      this.runningApprovals.delete(taskId);
     }
   }
 }

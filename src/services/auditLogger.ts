@@ -10,7 +10,10 @@ const ALLOWED_EVENT_TYPES = new Set([
   "REJECT",
   "RUN",
   "PR_CREATED",
-  "FAILED"
+  "FAILED",
+  "CHAT_REQUEST",
+  "CHAT_RESPONSE",
+  "CHAT_FAILED"
 ]);
 
 type AuditRecordInput = Omit<AuditRecord, "auditVersion"> & Partial<Pick<AuditRecord, "auditVersion">>;

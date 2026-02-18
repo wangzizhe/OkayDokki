@@ -38,7 +38,10 @@ function setup(
   const runner = {
     run
   } as unknown as TaskRunner;
-  const service = new TaskService(repo, audit, runner, repoRoot);
+  const service = new TaskService(repo, audit, runner, repoRoot, {
+    deliveryStrategy: "rolling",
+    baseBranch: "main"
+  });
 
   return { tempDir, repoRoot, auditPath, service };
 }

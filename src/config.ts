@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { DeliveryStrategy } from "./types.js";
 
 dotenv.config();
 export type TelegramMode = "polling" | "webhook";
@@ -26,6 +27,14 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return defaultValue;
 }
 
+function parsePositiveInt(value: string | undefined, defaultValue: number): number {
+  const n = Number(value ?? String(defaultValue));
+  if (!Number.isFinite(n) || n <= 0) {
+    return defaultValue;
+  }
+  return Math.floor(n);
+}
+
 function parseTelegramMode(value: string | undefined): TelegramMode {
   const normalized = (value ?? "polling").trim().toLowerCase();
   if (normalized === "polling" || normalized === "webhook") {
@@ -45,6 +54,16 @@ function parseAgentAuthMode(value: string | undefined): AgentAuthMode {
 }
 
 const agentAuthMode = parseAgentAuthMode(process.env.AGENT_AUTH_MODE);
+
+function parseDeliveryStrategy(value: string | undefined): DeliveryStrategy {
+  const normalized = (value ?? "rolling").trim().toLowerCase();
+  if (normalized === "rolling" || normalized === "isolated") {
+    return normalized;
+  }
+  throw new Error(`Invalid DELIVERY_STRATEGY: ${value}. Expected rolling or isolated.`);
+}
+
+const deliveryStrategy = parseDeliveryStrategy(process.env.DELIVERY_STRATEGY);
 
 export const config = {
   port: Number(process.env.PORT ?? "3000"),
@@ -70,7 +89,11 @@ export const config = {
   agentAuthMode,
   agentSessionCheckCmd: process.env.AGENT_SESSION_CHECK_CMD ?? "",
   chatCliBin: process.env.CHAT_CLI_BIN ?? "",
-  chatHistoryTurns: Number(process.env.CHAT_HISTORY_TURNS ?? "6"),
+  chatHistoryTurns: parsePositiveInt(process.env.CHAT_HISTORY_TURNS, 6),
+  chatMaxPromptChars: parsePositiveInt(process.env.CHAT_MAX_PROMPT_CHARS, 1200),
+  chatTimeoutMs: parsePositiveInt(process.env.CHAT_TIMEOUT_MS, 45000),
+  deliveryStrategy,
+  baseBranch: process.env.BASE_BRANCH ?? "main",
   telegramMode,
   telegramBotToken: required("TELEGRAM_BOT_TOKEN"),
   telegramWebhookSecret:

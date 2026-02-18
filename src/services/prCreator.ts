@@ -29,7 +29,7 @@ export class PrCreator {
       `Trigger user: ${task.triggerUser}`,
       "",
       "Stack:",
-      `- Strategy: rolling`,
+      `- Strategy: ${task.deliveryStrategy ?? "rolling"}`,
       `- Parent branch: ${stack.parentBranch}`,
       `- Merge order: ${stack.mergeOrder}`
     ].join("\n");
@@ -81,7 +81,16 @@ export class PrCreator {
     repoPath: string,
     task: TaskSpec
   ): Promise<{ parentBranch: string; mergeOrder: string }> {
-    const parentBranch = await this.getCurrentBranch(repoPath);
+    const strategy = task.deliveryStrategy ?? "rolling";
+    const baseBranch = task.baseBranch ?? "main";
+    let parentBranch = await this.getCurrentBranch(repoPath);
+    if (strategy === "isolated") {
+      await this.runGitBestEffort(repoPath, ["fetch", "origin", baseBranch]);
+      await this.runGit(repoPath, ["checkout", baseBranch]);
+      await this.runGitBestEffort(repoPath, ["reset", "--hard", `origin/${baseBranch}`]);
+      parentBranch = baseBranch;
+    }
+
     await this.runGit(repoPath, ["checkout", "-B", task.branch]);
     await this.runGit(repoPath, ["add", "-A"]);
 
@@ -103,9 +112,9 @@ export class PrCreator {
     return {
       parentBranch,
       mergeOrder:
-        parentBranch === "main"
-          ? `${task.branch} -> main`
-          : `${parentBranch} -> ${task.branch} -> main`
+        strategy === "isolated"
+          ? `${task.branch} -> ${baseBranch}`
+          : `${parentBranch} -> ${task.branch} -> ${baseBranch}`
     };
   }
 
@@ -124,6 +133,14 @@ export class PrCreator {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new PrCreatorError(`git ${args.join(" ")} failed: ${message}`);
+    }
+  }
+
+  private async runGitBestEffort(repoPath: string, args: string[]): Promise<void> {
+    try {
+      await execFileAsync("git", args, { cwd: repoPath });
+    } catch {
+      // best-effort sync for optional remote state
     }
   }
 

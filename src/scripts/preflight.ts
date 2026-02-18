@@ -198,6 +198,23 @@ function parseTelegramMode(): CheckResult | { mode: "polling" | "webhook" } {
   return { mode };
 }
 
+function parseDeliveryStrategy(): CheckResult | { mode: "rolling" | "isolated" } {
+  const raw = process.env.DELIVERY_STRATEGY ?? "rolling";
+  const mode = raw.trim().toLowerCase();
+  if (mode !== "rolling" && mode !== "isolated") {
+    return fail("DELIVERY_STRATEGY", `invalid value '${raw}', expected rolling or isolated`);
+  }
+  return { mode };
+}
+
+function checkBaseBranch(): CheckResult {
+  const branch = (process.env.BASE_BRANCH ?? "main").trim();
+  if (!branch) {
+    return fail("BASE_BRANCH", "empty");
+  }
+  return ok("BASE_BRANCH", branch);
+}
+
 function optionalEnvForPolling(name: string): CheckResult {
   const value = process.env[name];
   if (!value || value.trim() === "") {
@@ -222,6 +239,7 @@ function printResults(results: CheckResult[]): void {
 function main(): void {
   const modeResult = parseTelegramMode();
   const authModeResult = parseAgentAuthMode();
+  const deliveryResult = parseDeliveryStrategy();
   const results: CheckResult[] = [];
   if ("level" in modeResult) {
     results.push(modeResult);
@@ -233,6 +251,12 @@ function main(): void {
   } else {
     results.push(ok("AGENT_AUTH_MODE", authModeResult.mode));
   }
+  if ("level" in deliveryResult) {
+    results.push(deliveryResult);
+  } else {
+    results.push(ok("DELIVERY_STRATEGY", deliveryResult.mode));
+  }
+  results.push(runCheck("BASE_BRANCH", checkBaseBranch));
 
   results.push(
     runCheck("TELEGRAM_BOT_TOKEN", () => requiredEnv("TELEGRAM_BOT_TOKEN")),

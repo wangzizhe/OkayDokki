@@ -181,10 +181,19 @@ curl -s http://localhost:3000/api/v1/health/details | jq
 ## Telegram Commands
 
 - `/task ...`: create an executable task (approval required before write/run).
+- `/task status <task_id>`: quick task status lookup.
+- `/last`: show latest task summary.
 - `/rerun <task_id>`: rerun a previous task as a new task.
 - `/chat ...`: chat-only mode for ideation/planning (no task state transition, no PR).
 - `/chat repo=<repo> ...`: chat against a specific repo snapshot context.
 - `/chat reset`: clear short-term chat memory for current Telegram session.
+- `/chat cancel`: cancel active chat request for current session.
+
+## Delivery Strategy
+
+- `DELIVERY_STRATEGY=rolling` (default): chain PRs on current working branch context.
+- `DELIVERY_STRATEGY=isolated`: reset to `BASE_BRANCH` before creating task branch.
+- `BASE_BRANCH=main`: base branch used by isolated mode and merge-order metadata.
 
 ## Agent Auth Modes
 
@@ -203,6 +212,8 @@ Chat mode notes:
 - `/chat` uses local CLI in read-only sandbox mode.
 - You can override chat CLI binary via `CHAT_CLI_BIN`.
 - Chat memory keeps recent turns per `chat_id + user_id` (`CHAT_HISTORY_TURNS`, default `6`).
+- Prompt length guard: `CHAT_MAX_PROMPT_CHARS` (default `1200`).
+- Timeout guard: `CHAT_TIMEOUT_MS` (default `45000`).
 
 ## MVP Scope in This Repository
 

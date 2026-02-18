@@ -13,6 +13,8 @@ type TaskRow = {
   status: TaskStatus;
   created_at: string;
   approved_by: string | null;
+  delivery_strategy?: string | null;
+  base_branch?: string | null;
 };
 
 export class TaskRepository {
@@ -21,8 +23,8 @@ export class TaskRepository {
   create(task: TaskSpec): void {
     const stmt = this.db.prepare(`
       INSERT INTO tasks (
-        task_id, source_im, trigger_user, repo, branch, intent, agent, status, created_at, approved_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        task_id, source_im, trigger_user, repo, branch, intent, agent, status, created_at, approved_by, delivery_strategy, base_branch
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       task.taskId,
@@ -34,7 +36,9 @@ export class TaskRepository {
       task.agent,
       task.status,
       task.createdAt,
-      task.approvedBy
+      task.approvedBy,
+      task.deliveryStrategy ?? "rolling",
+      task.baseBranch ?? "main"
     );
   }
 
@@ -81,7 +85,9 @@ export class TaskRepository {
       agent: row.agent,
       status: row.status,
       createdAt: row.created_at,
-      approvedBy: row.approved_by
+      approvedBy: row.approved_by,
+      deliveryStrategy: row.delivery_strategy === "isolated" ? "isolated" : "rolling",
+      baseBranch: row.base_branch ?? "main"
     };
   }
 }

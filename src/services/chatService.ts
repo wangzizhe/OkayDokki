@@ -5,15 +5,21 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolveRepoSnapshotPath } from "../utils/repoSnapshot.js";
 import { ChatMemoryRepository } from "../repositories/chatMemoryRepository.js";
+import { AuditLogger } from "./auditLogger.js";
 
 const execFileAsync = promisify(execFile);
 
 export class ChatService {
+  private readonly activeRequests = new Map<string, AbortController>();
+
   constructor(
     private readonly cliBin: string,
     private readonly repoRoot: string,
     private readonly memory: ChatMemoryRepository,
-    private readonly historyTurns: number
+    private readonly historyTurns: number,
+    private readonly maxPromptChars: number,
+    private readonly timeoutMs: number,
+    private readonly audit: AuditLogger
   ) {}
 
   static deriveCliBinary(agentCliTemplate: string, explicitCliBin?: string): string {
@@ -29,6 +35,14 @@ export class ChatService {
   }
 
   async ask(chatId: string, userId: string, prompt: string, repo: string): Promise<string> {
+    if (prompt.length > this.maxPromptChars) {
+      throw new Error(`Prompt too long. Limit is ${this.maxPromptChars} characters.`);
+    }
+    const key = `${chatId}:${userId}`;
+    if (this.activeRequests.has(key)) {
+      throw new Error("Another chat request is already running. Use /chat cancel or wait.");
+    }
+
     const repoPath = resolveRepoSnapshotPath(this.repoRoot, repo);
     if (!fs.existsSync(repoPath)) {
       throw new Error(`Repo snapshot not found for chat: ${repoPath}`);
@@ -56,6 +70,16 @@ export class ChatService {
       .filter(Boolean)
       .join("\n\n");
 
+    const controller = new AbortController();
+    this.activeRequests.set(key, controller);
+    this.audit.append({
+      timestamp: new Date().toISOString(),
+      taskId: `chat:${chatId}`,
+      triggerUser: userId,
+      eventType: "CHAT_REQUEST",
+      message: `repo=${repo} prompt=${prompt.slice(0, 200)}`
+    });
+
     try {
       const { stdout } = await execFileAsync(
         this.cliBin,
@@ -72,7 +96,9 @@ export class ChatService {
         ],
         {
           cwd: process.cwd(),
-          env: process.env
+          env: process.env,
+          timeout: this.timeoutMs,
+          signal: controller.signal
         }
       );
 
@@ -84,17 +110,50 @@ export class ChatService {
       const clipped = output.slice(0, 3500);
       this.memory.append(chatId, userId, repo, "user", prompt);
       this.memory.append(chatId, userId, repo, "assistant", clipped);
+      this.audit.append({
+        timestamp: new Date().toISOString(),
+        taskId: `chat:${chatId}`,
+        triggerUser: userId,
+        eventType: "CHAT_RESPONSE",
+        message: clipped.slice(0, 200)
+      });
       return clipped;
     } catch (err) {
-      const e = err as { stderr?: string; stdout?: string; message?: string };
-      const detail = (e.stderr || e.stdout || e.message || "chat command failed").trim();
+      const e = err as {
+        stderr?: string;
+        stdout?: string;
+        message?: string;
+        killed?: boolean;
+        signal?: string;
+      };
+      const detail = controller.signal.aborted
+        ? "chat canceled by user"
+        : (e.stderr || e.stdout || e.message || "chat command failed").trim();
+      this.audit.append({
+        timestamp: new Date().toISOString(),
+        taskId: `chat:${chatId}`,
+        triggerUser: userId,
+        eventType: "CHAT_FAILED",
+        message: detail.slice(0, 200)
+      });
       throw new Error(detail);
     } finally {
+      this.activeRequests.delete(key);
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   }
 
   reset(chatId: string, userId: string): void {
     this.memory.clear(chatId, userId);
+  }
+
+  cancel(chatId: string, userId: string): boolean {
+    const key = `${chatId}:${userId}`;
+    const controller = this.activeRequests.get(key);
+    if (!controller) {
+      return false;
+    }
+    controller.abort();
+    return true;
   }
 }

@@ -93,6 +93,7 @@ export class TelegramAdapter implements IMAdapter {
     if (
       (messageText.startsWith("/task") ||
         messageText.startsWith("/rerun") ||
+        messageText.startsWith("/last") ||
         messageText.startsWith("/chat")) &&
       this.taskHandler
     ) {

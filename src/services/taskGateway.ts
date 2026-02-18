@@ -1,17 +1,46 @@
 import { IMAdapter } from "../adapters/im/imAdapter.js";
 import { config } from "../config.js";
-import { TaskAction, TaskService, TaskServiceError } from "./taskService.js";
+import { DeliveryStrategy } from "../types.js";
 import { ChatService } from "./chatService.js";
+import { TaskAction, TaskService, TaskServiceError } from "./taskService.js";
 
-function parseTaskCommand(text: string): { repo: string; intent: string } {
+function parseTaskCommand(text: string): {
+  repo: string;
+  intent: string;
+  deliveryStrategy: DeliveryStrategy;
+  baseBranch: string;
+} {
   const trimmed = text.trim();
   const repoMatch = trimmed.match(/repo=([^\s]+)/);
+  const strategyMatch = trimmed.match(/strategy=([^\s]+)/);
+  const baseMatch = trimmed.match(/base=([^\s]+)/);
+
   const repo = repoMatch?.[1] ?? config.defaultRepo;
-  const intent = trimmed.replace(/^\/task/, "").replace(/repo=[^\s]+/, "").trim();
-  if (!intent) {
-    throw new Error("Intent is required. Example: /task repo=org/name fix login 500");
+  const strategyRaw = (strategyMatch?.[1] ?? config.deliveryStrategy).toLowerCase();
+  if (strategyRaw !== "rolling" && strategyRaw !== "isolated") {
+    throw new Error("Invalid strategy. Use strategy=rolling or strategy=isolated.");
   }
-  return { repo, intent };
+  const baseBranch = baseMatch?.[1] ?? config.baseBranch;
+  const intent = trimmed
+    .replace(/^\/task/, "")
+    .replace(/repo=[^\s]+/, "")
+    .replace(/strategy=[^\s]+/, "")
+    .replace(/base=[^\s]+/, "")
+    .trim();
+  if (!intent) {
+    throw new Error(
+      "Intent is required. Example: /task repo=okd-sandbox strategy=rolling fix login 500"
+    );
+  }
+  return { repo, intent, deliveryStrategy: strategyRaw, baseBranch };
+}
+
+function parseTaskStatusCommand(text: string): { taskId: string } {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length < 3 || parts[1] !== "status" || !parts[2]) {
+    throw new Error("Usage: /task status <task_id>");
+  }
+  return { taskId: parts[2] };
 }
 
 function parseRerunCommand(text: string): { taskId: string } {
@@ -22,13 +51,22 @@ function parseRerunCommand(text: string): { taskId: string } {
   return { taskId: parts[1] };
 }
 
-function parseChatCommand(text: string): { repo: string; prompt: string; reset: boolean } {
+function parseChatCommand(text: string): { repo: string; prompt: string; reset: boolean; cancel: boolean } {
   const trimmed = text.trim();
   if (/^\/chat\s+reset$/i.test(trimmed)) {
     return {
       repo: config.defaultRepo,
       prompt: "",
-      reset: true
+      reset: true,
+      cancel: false
+    };
+  }
+  if (/^\/chat\s+cancel$/i.test(trimmed)) {
+    return {
+      repo: config.defaultRepo,
+      prompt: "",
+      reset: false,
+      cancel: true
     };
   }
   const repoMatch = trimmed.match(/repo=([^\s]+)/);
@@ -39,7 +77,7 @@ function parseChatCommand(text: string): { repo: string; prompt: string; reset: 
       "Prompt is required. Example: /chat repo=okd-sandbox How should I refactor auth middleware?"
     );
   }
-  return { repo, prompt, reset: false };
+  return { repo, prompt, reset: false, cancel: false };
 }
 
 function parseAction(raw: string): { action: TaskAction; taskId: string } {
@@ -60,6 +98,8 @@ function parseAction(raw: string): { action: TaskAction; taskId: string } {
 }
 
 export class TaskGateway {
+  private readonly runningApprovals = new Set<string>();
+
   constructor(
     private readonly im: IMAdapter,
     private readonly service: TaskService,
@@ -76,15 +116,24 @@ export class TaskGateway {
   }
 
   private async handleTask(chatId: string, userId: string, text: string): Promise<void> {
-    if (text.startsWith("/chat")) {
+    const trimmed = text.trim();
+    if (trimmed.startsWith("/last")) {
+      await this.handleLast(chatId);
+      return;
+    }
+    if (trimmed.startsWith("/chat")) {
       await this.handleChat(chatId, userId, text);
       return;
     }
-
-    if (text.startsWith("/rerun")) {
+    if (trimmed.startsWith("/task status")) {
+      await this.handleTaskStatus(chatId, text);
+      return;
+    }
+    if (trimmed.startsWith("/rerun")) {
       await this.handleRerun(chatId, userId, text);
       return;
     }
+
     try {
       const parsed = parseTaskCommand(text);
       const result = this.service.createTask({
@@ -92,7 +141,9 @@ export class TaskGateway {
         triggerUser: `tg:${userId}`,
         repo: parsed.repo,
         intent: parsed.intent,
-        agent: "codex"
+        agent: "codex",
+        deliveryStrategy: parsed.deliveryStrategy,
+        baseBranch: parsed.baseBranch
       });
 
       if (result.needsClarify) {
@@ -124,12 +175,62 @@ export class TaskGateway {
     }
   }
 
+  private async handleTaskStatus(chatId: string, text: string): Promise<void> {
+    try {
+      const parsed = parseTaskStatusCommand(text);
+      const task = this.service.getTask(parsed.taskId);
+      await this.im.sendMessage(
+        chatId,
+        [
+          `Task: ${task.taskId}`,
+          `Status: ${task.status}`,
+          `Repo: ${task.repo}`,
+          `Branch: ${task.branch}`,
+          `Strategy: ${task.deliveryStrategy ?? config.deliveryStrategy}`,
+          `Base: ${task.baseBranch ?? config.baseBranch}`,
+          `Intent: ${task.intent}`
+        ].join("\n")
+      );
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof Error ? err.message : "Failed to query task status."
+      );
+    }
+  }
+
+  private async handleLast(chatId: string): Promise<void> {
+    const latest = this.service.listTasks(1).tasks[0];
+    if (!latest) {
+      await this.im.sendMessage(chatId, "No tasks found yet.");
+      return;
+    }
+    await this.im.sendMessage(
+      chatId,
+      [
+        `Last task: ${latest.taskId}`,
+        `Status: ${latest.status}`,
+        `Repo: ${latest.repo}`,
+        `Branch: ${latest.branch}`,
+        `Intent: ${latest.intent}`
+      ].join("\n")
+    );
+  }
+
   private async handleChat(chatId: string, userId: string, text: string): Promise<void> {
     try {
       const parsed = parseChatCommand(text);
       if (parsed.reset) {
         this.chat.reset(chatId, `tg:${userId}`);
         await this.im.sendMessage(chatId, "Chat memory cleared for this session.");
+        return;
+      }
+      if (parsed.cancel) {
+        const canceled = this.chat.cancel(chatId, `tg:${userId}`);
+        await this.im.sendMessage(
+          chatId,
+          canceled ? "Active chat request canceled." : "No active chat request to cancel."
+        );
         return;
       }
       await this.im.sendMessage(chatId, "Chat accepted. Thinking...");
@@ -146,7 +247,7 @@ export class TaskGateway {
     chatId: string,
     userId: string,
     repo: string,
-      prompt: string
+    prompt: string
   ): Promise<void> {
     try {
       const response = await this.chat.ask(chatId, `tg:${userId}`, prompt, repo);
@@ -188,7 +289,11 @@ export class TaskGateway {
     } catch (err) {
       await this.im.sendMessage(
         chatId,
-        err instanceof TaskServiceError ? `${err.message} (code: ${err.code})` : err instanceof Error ? err.message : "Failed to rerun task."
+        err instanceof TaskServiceError
+          ? `${err.message} (code: ${err.code})`
+          : err instanceof Error
+            ? err.message
+            : "Failed to rerun task."
       );
     }
   }
@@ -197,12 +302,17 @@ export class TaskGateway {
     try {
       const { action, taskId } = parseAction(data);
       if (action === "approve") {
+        if (this.runningApprovals.has(taskId)) {
+          await this.im.sendMessage(chatId, `Task ${taskId} is already running.`);
+          return;
+        }
+        this.runningApprovals.add(taskId);
         await this.im.sendMessage(chatId, `Task ${taskId} accepted. Status: RUNNING`);
         void this.handleApproveAsync(chatId, userId, taskId);
         return;
       }
 
-      const result = await this.service.applyAction(taskId, action, `tg:${userId}`);
+      await this.service.applyAction(taskId, action, `tg:${userId}`);
 
       if (action === "retry") {
         await this.im.sendMessage(chatId, `Task ${taskId} moved to WAIT_APPROVE_WRITE.`);
@@ -218,12 +328,19 @@ export class TaskGateway {
     } catch (err) {
       if (err instanceof TaskServiceError && err.statusCode === 500) {
         const taskId = data.split(":")[1];
-        await this.im.sendMessage(chatId, `Task ${taskId} failed. Code: ${err.code}`);
+        await this.im.sendMessage(
+          chatId,
+          `Task ${taskId} failed. Code: ${err.code}\nHint: ${this.failureHint(err.code)}`
+        );
         return;
       }
       await this.im.sendMessage(
         chatId,
-        err instanceof TaskServiceError ? `${err.message} (code: ${err.code})` : err instanceof Error ? err.message : "Callback handling failed."
+        err instanceof TaskServiceError
+          ? `${err.message} (code: ${err.code})`
+          : err instanceof Error
+            ? err.message
+            : "Callback handling failed."
       );
     }
   }
@@ -237,13 +354,22 @@ export class TaskGateway {
       );
     } catch (err) {
       if (err instanceof TaskServiceError && err.statusCode === 500) {
-        await this.im.sendMessage(chatId, `Task ${taskId} failed. Code: ${err.code}`);
+        await this.im.sendMessage(
+          chatId,
+          `Task ${taskId} failed. Code: ${err.code}\nHint: ${this.failureHint(err.code)}`
+        );
         return;
       }
       await this.im.sendMessage(
         chatId,
-        err instanceof TaskServiceError ? `${err.message} (code: ${err.code})` : err instanceof Error ? err.message : "Approval handling failed."
+        err instanceof TaskServiceError
+          ? `${err.message} (code: ${err.code})`
+          : err instanceof Error
+            ? err.message
+            : "Approval handling failed."
       );
+    } finally {
+      this.runningApprovals.delete(taskId);
     }
   }
 
@@ -265,11 +391,25 @@ export class TaskGateway {
       `- Repo: ${task.repo}`,
       `- Branch: ${task.branch}`,
       `- Intent: ${task.intent}`,
+      `- Delivery strategy: ${task.deliveryStrategy ?? config.deliveryStrategy}`,
+      `- Base branch: ${task.baseBranch ?? config.baseBranch}`,
       `- Test command: ${config.defaultTestCommand}`,
       `- Blocked paths: ${blocked || "none"}`,
       `- Max changed files: ${config.maxChangedFiles}`,
       `- Max diff bytes: ${config.maxDiffBytes}`,
       `- Binary patch allowed: ${config.disallowBinaryPatch ? "no" : "yes"}`
     ].join("\n");
+  }
+
+  private failureHint(code: string): string {
+    const hints: Record<string, string> = {
+      SNAPSHOT_MISSING: "Prepare repo snapshot under REPO_SNAPSHOT_ROOT and tap Retry.",
+      AGENT_FAILED: "Check AGENT_CLI_TEMPLATE and provider login status.",
+      SANDBOX_FAILED: "Check Docker daemon/image and allowed test command.",
+      POLICY_VIOLATION: "Reduce diff scope or adjust policy limits/blocked paths.",
+      TEST_FAILED: "Inspect test logs and rerun after fixing failures.",
+      PR_CREATE_FAILED: "Verify git remote/push permissions and gh auth."
+    };
+    return hints[code] ?? "Check audit log for details.";
   }
 }

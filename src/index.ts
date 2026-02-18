@@ -38,13 +38,19 @@ async function main(): Promise<void> {
     maxDiffBytes: config.maxDiffBytes,
     disallowBinaryPatch: config.disallowBinaryPatch
   });
-  const taskService = new TaskService(repo, audit, runner, config.repoSnapshotRoot);
+  const taskService = new TaskService(repo, audit, runner, config.repoSnapshotRoot, {
+    deliveryStrategy: config.deliveryStrategy,
+    baseBranch: config.baseBranch
+  });
   const telegram = new TelegramAdapter(config.telegramBotToken, config.telegramWebhookSecret);
   const chatService = new ChatService(
     ChatService.deriveCliBinary(config.agentCliTemplate, config.chatCliBin),
     config.repoSnapshotRoot,
     chatMemory,
-    config.chatHistoryTurns
+    config.chatHistoryTurns,
+    config.chatMaxPromptChars,
+    config.chatTimeoutMs,
+    audit
   );
   const gateway = new TaskGateway(telegram, taskService, chatService);
 
