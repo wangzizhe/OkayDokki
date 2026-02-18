@@ -22,6 +22,24 @@ All actions are auditable by design with strict default safety boundaries (read-
 - Full auditability
 - Pluggable adapters
 
+## Why OkayDokki (Simple Comparison)
+
+Most chat-to-code tools can generate code quickly.  
+OkayDokki is designed for teams that need controlled delivery and auditability.
+
+| Capability | Typical Chat Coding Tool | OkayDokki |
+|---|---|---|
+| Trigger from IM | Usually yes | Yes (Telegram first) |
+| Write gating | Often immediate write/run | Explicit approve/reject before write-run |
+| Execution boundary | Varies by tool | Docker sandbox, no network, read-only source input |
+| Delivery path | Mixed (direct edits, commits, PRs) | PR-first (draft PR as standard output) |
+| Audit trail | Often partial logs | Structured JSONL events with status and error codes |
+| Policy controls | Limited or implicit | Diff policy gate (blocked paths, binary patch, size/file limits) |
+| Re-run workflow | Usually manual | Built-in task rerun flow (`/rerun` and API rerun) |
+| API + IM dual control | Not always | Yes (internal API + Telegram flow) |
+
+In short: OkayDokki optimizes for **safe, reviewable, auditable code delivery**, not only generation speed.
+
 ## Task State Machine
 
 ```text
