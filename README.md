@@ -1,5 +1,8 @@
 # OkayDokki
 
+[![CI](https://img.shields.io/badge/CI-enabled-brightgreen)](#ci)
+![OkayDokki Flow](docs/assets/okaydokki-flow.svg)
+
 Text your coding agent from Telegram. Approve changes, run safely, and ship via Draft PRs.
 
 OkayDokki is a human-in-the-loop AI code delivery agent. It turns chat commands into auditable code changes with mandatory approval and PR-only output.
@@ -110,15 +113,7 @@ npm run dev
 
 ## CI
 
-GitHub Actions runs:
-
-- `npm ci`
-- `npm run typecheck`
-- `npm run build`
-
-Workflow:
-
-- `.github/workflows/ci.yml`
+CI is enabled via GitHub Actions (`.github/workflows/ci.yml`) and runs `npm ci`, `npm run typecheck`, and `npm run build`.
 
 ## License
 
