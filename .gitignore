@@ -3,4 +3,7 @@ dist
 .env
 *.db
 audit.jsonl
-
+repos/
+.DS_Store
+docs/.DS_Store
+docs/assets/.DS_Store
