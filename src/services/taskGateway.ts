@@ -536,16 +536,12 @@ export class TaskGateway {
 
   private buildApprovalSummary(taskId: string): string {
     const task = this.service.getTask(taskId);
-    const blocked = config.blockedPathPrefixes.join(", ");
     return [
       "Approval summary:",
       `- Task: ${task.taskId}`,
-      `- Repo: ${task.repo}`,
-      `- Branch: ${task.branch}`,
-      `- Intent: ${task.intent}`,
-      `- Delivery strategy: ${task.deliveryStrategy ?? config.deliveryStrategy}`,
-      `- Base branch: ${task.baseBranch ?? config.baseBranch}`,
-      `- Test command: ${config.defaultTestCommand}`,
+      `- Repo/Branch: ${task.repo} / ${task.branch}`,
+      `- Intent: ${truncate(task.intent, 100)}`,
+      `- Strategy/Base/Test: ${task.deliveryStrategy ?? config.deliveryStrategy} / ${task.baseBranch ?? config.baseBranch} / ${config.defaultTestCommand}`,
       "",
       "Tap Details to view full policy limits."
     ].join("\n");
@@ -581,6 +577,13 @@ export class TaskGateway {
     };
     return hints[code] ?? "Check audit log for details.";
   }
+}
+
+function truncate(value: string, max: number): string {
+  if (value.length <= max) {
+    return value;
+  }
+  return `${value.slice(0, max - 3)}...`;
 }
 
 function newDraftId(): string {
