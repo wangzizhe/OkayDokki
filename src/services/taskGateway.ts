@@ -134,6 +134,12 @@ export class TaskGateway {
   private async handleCallback(chatId: string, userId: string, data: string): Promise<void> {
     try {
       const { action, taskId } = parseAction(data);
+      if (action === "approve") {
+        await this.im.sendMessage(chatId, `Task ${taskId} accepted. Status: RUNNING`);
+        void this.handleApproveAsync(chatId, userId, taskId);
+        return;
+      }
+
       const result = await this.service.applyAction(taskId, action, `tg:${userId}`);
 
       if (action === "retry") {
@@ -147,11 +153,6 @@ export class TaskGateway {
         await this.im.sendMessage(chatId, `Task ${taskId} rejected.`);
         return;
       }
-
-      await this.im.sendMessage(
-        chatId,
-        `Task ${taskId} completed.\nTests: ${result.runResult?.testsResult ?? "unknown"}\nPR: ${result.runResult?.prLink ?? "not created"}`
-      );
     } catch (err) {
       if (err instanceof TaskServiceError && err.statusCode === 500) {
         const taskId = data.split(":")[1];
@@ -161,6 +162,25 @@ export class TaskGateway {
       await this.im.sendMessage(
         chatId,
         err instanceof TaskServiceError ? `${err.message} (code: ${err.code})` : err instanceof Error ? err.message : "Callback handling failed."
+      );
+    }
+  }
+
+  private async handleApproveAsync(chatId: string, userId: string, taskId: string): Promise<void> {
+    try {
+      const result = await this.service.applyAction(taskId, "approve", `tg:${userId}`);
+      await this.im.sendMessage(
+        chatId,
+        `Task ${taskId} completed.\nTests: ${result.runResult?.testsResult ?? "unknown"}\nPR: ${result.runResult?.prLink ?? "not created"}`
+      );
+    } catch (err) {
+      if (err instanceof TaskServiceError && err.statusCode === 500) {
+        await this.im.sendMessage(chatId, `Task ${taskId} failed. Code: ${err.code}`);
+        return;
+      }
+      await this.im.sendMessage(
+        chatId,
+        err instanceof TaskServiceError ? `${err.message} (code: ${err.code})` : err instanceof Error ? err.message : "Approval handling failed."
       );
     }
   }
