@@ -1,0 +1,71 @@
+name: Feedback
+description: Report setup friction, bugs, or feature requests for OkayDokki.
+title: "[Feedback] "
+labels:
+  - feedback
+body:
+  - type: dropdown
+    id: feedback_type
+    attributes:
+      label: Feedback Type
+      description: What kind of feedback is this?
+      options:
+        - Setup friction
+        - Bug report
+        - Feature request
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, Docker version, and deployment mode (polling/webhook).
+      placeholder: macOS 15, Node 22.x, Docker 29.x, Telegram polling
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you try?
+      description: Commands or Telegram actions you performed.
+      placeholder: |
+        1. npm run preflight
+        2. npm run dev
+        3. /plan repo=okd-sandbox ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened?
+      description: Actual behavior/output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Expected behavior.
+    validations:
+      required: true
+
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID (optional)
+      description: If available, include the task_id shown by the bot.
+      placeholder: 123e4567-e89b-12d3-a456-426614174000
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots (optional)
+      description: Paste snippets from terminal/Telegram/audit or attach screenshots.
+    validations:
+      required: false

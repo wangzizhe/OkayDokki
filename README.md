@@ -165,6 +165,15 @@ Expected outcome:
 - `PR_CREATE_FAILED`
   - Verify git remote/push rights and `gh auth status`
 
+## Operations
+
+- Upgrade
+  - `git pull && npm install && npm run db:init`
+- Restart
+  - Stop current process, then run `npm run dev`
+- Backup DB and audit log
+  - `cp okaydokki.db backup-okaydokki.db && cp audit.jsonl backup-audit.jsonl`
+
 ## Minimal Config
 
 - `TELEGRAM_MODE` (`polling` recommended for self-hosted)
@@ -188,6 +197,7 @@ Expected outcome:
 - `docs/contracts/gateway-api.md`
 - `docs/runbook-live-test.md`
 - `docs/provider-auth.md`
+- `docs/checklists/regression.md`
 
 ## License
 

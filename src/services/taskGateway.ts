@@ -189,11 +189,14 @@ type PendingPlan = {
   planText: string;
 };
 
+const CALLBACK_DEDUP_TTL_MS = 2 * 60 * 1000;
+
 export class TaskGateway {
   private readonly runningApprovals = new Set<string>();
   private readonly pendingTaskDrafts = new Map<string, PendingTaskDraft>();
   private readonly pendingPlans = new Map<string, PendingPlan>();
   private readonly awaitingPlanFeedback = new Map<string, string>();
+  private readonly processedCallbacks = new Map<string, number>();
 
   constructor(
     private readonly im: IMAdapter,
@@ -577,6 +580,14 @@ export class TaskGateway {
   private async handleCallback(chatId: string, userId: string, data: string): Promise<void> {
     try {
       const parsed = parseAction(data);
+      if (parsed.kind !== "details") {
+        const callbackKey = `${chatId}:${userId}:${data}`;
+        if (this.isProcessedCallback(callbackKey)) {
+          await this.im.sendMessage(chatId, "Action already processed.");
+          return;
+        }
+        this.markProcessedCallback(callbackKey);
+      }
       if (parsed.kind === "select_strategy") {
         const draft = this.pendingTaskDrafts.get(parsed.draftId);
         if (!draft) {
@@ -989,6 +1000,29 @@ export class TaskGateway {
 
   private planFeedbackSessionKey(chatId: string, userId: string): string {
     return `${chatId}:${userId}`;
+  }
+
+  private isProcessedCallback(key: string): boolean {
+    this.pruneProcessedCallbacks();
+    const ts = this.processedCallbacks.get(key);
+    if (!ts) {
+      return false;
+    }
+    return Date.now() - ts <= CALLBACK_DEDUP_TTL_MS;
+  }
+
+  private markProcessedCallback(key: string): void {
+    this.pruneProcessedCallbacks();
+    this.processedCallbacks.set(key, Date.now());
+  }
+
+  private pruneProcessedCallbacks(): void {
+    const now = Date.now();
+    for (const [key, ts] of this.processedCallbacks.entries()) {
+      if (now - ts > CALLBACK_DEDUP_TTL_MS) {
+        this.processedCallbacks.delete(key);
+      }
+    }
   }
 }
 

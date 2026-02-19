@@ -45,6 +45,7 @@ class FakeIMAdapter {
 class FakeTaskService {
   private seq = 0;
   public lastTaskId = "";
+  public applyActionCalls = 0;
 
   createTask(input: { repo: string; intent: string; deliveryStrategy?: "rolling" | "isolated"; baseBranch?: string }) {
     this.seq += 1;
@@ -90,6 +91,7 @@ class FakeTaskService {
   }
 
   async applyAction(taskId: string) {
+    this.applyActionCalls += 1;
     return {
       task: {
         taskId,
@@ -221,4 +223,20 @@ test("normal text message routes to default chat flow", async () => {
   assert.equal(im.sent[0]?.content, "Chat accepted. Thinking...");
   assert.equal(im.sent[1]?.content, "chat response");
   assert.equal(chat.asks[0]?.repo, config.defaultRepo);
+});
+
+test("duplicate callback replay is deduplicated", async () => {
+  const im = new FakeIMAdapter();
+  const service = new FakeTaskService();
+  const chat = new FakeChatService();
+  const prefs = new FakePrefs();
+  const gateway = new TaskGateway(im as never, service as never, chat as never, prefs as never);
+  gateway.bindHandlers();
+
+  await im.dispatchCallback("c3", "u3", "apv:task-1");
+  await im.dispatchCallback("c3", "u3", "apv:task-1");
+  await flushAsyncTurns();
+
+  assert.equal(service.applyActionCalls, 1);
+  assert.ok(im.sent.some((m) => m.content === "Action already processed."));
 });
