@@ -43,40 +43,74 @@ cp .env.example .env
 - `TELEGRAM_BOT_TOKEN`
 - `DEFAULT_REPO`
 - `AGENT_CLI_TEMPLATE`
+- `REPO_SNAPSHOT_ROOT`
 
-4. Init DB
+4. Add 2 repo runtime files (copy-paste templates)
+
+Put these files in your target repo root (example: `/Users/meow/Documents/GateForge`):
+
+`Dockerfile.okd`
+
+```dockerfile
+# Pick ONE base image that matches your stack:
+# - Node:   FROM node:22-bookworm-slim
+# - Python: FROM python:3.12-slim
+# - Other/custom: FROM ubuntu:24.04
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git bash build-essential \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+```
+
+Build it once:
+
+```bash
+docker build -f Dockerfile.okd -t gateforge-okd:latest .
+```
+
+`okaydokki.yaml`
+
+```yaml
+sandbox_image: gateforge-okd:latest
+test_command: python3 -m unittest discover -s tests -v
+allowed_test_commands:
+  - python3 -m unittest discover -s tests -v
+```
+
+5. Init DB
 
 ```bash
 npm run db:init
 ```
 
-5. Check runtime prerequisites
+6. Check runtime prerequisites
 
 ```bash
 npm run preflight
 ```
 
-6. Start service
+7. Start service
 
 ```bash
 npm run dev
 ```
 
-## Minimal Config
+## Key Concepts
 
-- `TELEGRAM_MODE` (`polling` recommended for self-hosted)
-- `TELEGRAM_BOT_TOKEN`
-- `DEFAULT_REPO`
-- `AGENT_AUTH_MODE` (`session` recommended)
-- `AGENT_PROVIDER` (`codex` | `claude` | `gemini`)
-- `AGENT_CLI_TEMPLATE`
-- `DELIVERY_STRATEGY` (`rolling` or `isolated`)
-- `BASE_BRANCH` (usually `main`)
+- Runtime mode: `TELEGRAM_MODE=polling` (recommended for self-hosted)
+- Agent config: `AGENT_PROVIDER` + `AGENT_CLI_TEMPLATE` (+ optional `AGENT_AUTH_MODE=session`)
+- Repo routing: `REPO_SNAPSHOT_ROOT` + `DEFAULT_REPO`
+- Delivery strategy: `DELIVERY_STRATEGY=rolling|isolated`, base via `BASE_BRANCH`
+- Safety by default: approval before write/run, draft PR only, diff policy guards, full audit log (`audit.jsonl`)
 
 ## Provider Presets
 
 Pick one provider and copy its preset into `.env`.
-These presets are examples, verify flags against your installed CLI version.
+These presets are examples; verify flags against your installed CLI version.
 
 ### Codex (CLI session login)
 
@@ -103,15 +137,8 @@ AGENT_SESSION_CHECK_CMD=gemini --version
 ```
 
 Notes:
-- Claude/Gemini command flags vary by CLI release. Adjust the command to your installed version.
+- For Claude/Gemini, replace only the CLI binary/flags to match your local install.
 - Keep `"$OKD_INTENT"` in the command so task intent is passed to the agent.
-
-## Safety Defaults
-
-- Approval required before write/run
-- Draft PR only
-- Diff policy guard (blocked paths, size/file limits, binary controls)
-- Full audit log in `audit.jsonl`
 
 ## Telegram Usage
 
@@ -141,21 +168,12 @@ Example:
 
 ## Commands
 
-### Core Commands
-
-- `/task status <task_id>`: show task status
+- `/task repo=<repo> <goal>`: run directly (approval required)
+- `/plan repo=<repo> <goal>`: plan first, then approve to run
 - `/rerun <task_id>`: rerun as a new task
-- `/help`: show compact command guide
-- `/last`: show latest task summary
+- `/task status <task_id>`: show task status
 
-### Advanced Commands
-
-- `/strategy`: show your strategy preference
-- `/strategy rolling|isolated`: set preference
-- `/strategy clear`: reset preference to default
-- `/chat repo=<repo> ...`: optional explicit chat command
-- `/chat reset`: clear chat short-memory
-- `/chat cancel`: cancel active chat request
+More command examples: `docs/runbook-live-test.md`
 
 ## Live Demo Script (5 min)
 
@@ -165,30 +183,18 @@ Run service:
 npm run dev
 ```
 
-Then in Telegram, send these in order:
+Then in Telegram, run:
 
-1. Chat (normal message)
-
-```text
-What are 2 risks of rolling PR strategy in this repo?
-```
-
-2. Plan request
+1. Plan request:
 
 ```text
 /plan repo=okd-sandbox refactor task gateway routing and add tests for plan revision flow
 ```
 
-3. Click `Revise Plan`, send one feedback message, then click `Approve Plan`
+2. Direct task:
 
 ```text
-Keep the plan very short, in English, and include one rollback check.
-```
-
-4. Click `Approve` on task approval summary (optional: `/rerun <task_id>`)
-
-```text
-/rerun <task_id>
+/task repo=okd-sandbox add one line "Updated by OkayDokki" to README.md and keep npm test passing
 ```
 
 Expected outcome:

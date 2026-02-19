@@ -7,6 +7,17 @@ import { TaskSpec } from "../types.js";
 import { resolveRepoSnapshotPath } from "../utils/repoSnapshot.js";
 
 const execFileAsync = promisify(execFile);
+const COPY_EXCLUDE_NAMES = new Set([
+  ".git",
+  ".DS_Store",
+  "node_modules",
+  ".next",
+  "dist",
+  "build",
+  "coverage",
+  ".turbo",
+  ".cache"
+]);
 
 export interface HostAgentExecutionResult {
   diff: string;
@@ -30,7 +41,10 @@ export class HostAgentExecutor {
     const outDir = path.join(tempDir, "out");
     fs.mkdirSync(workDir, { recursive: true });
     fs.mkdirSync(outDir, { recursive: true });
-    fs.cpSync(repoPath, workDir, { recursive: true });
+    fs.cpSync(repoPath, workDir, {
+      recursive: true,
+      filter: (src) => !COPY_EXCLUDE_NAMES.has(path.basename(src))
+    });
 
     try {
       await execFileAsync("sh", ["-lc", agentCommand], {
@@ -68,7 +82,20 @@ export class HostAgentExecutor {
 
   private async diffRepo(original: string, candidate: string): Promise<string> {
     try {
-      const { stdout } = await execFileAsync("diff", ["-ruN", original, candidate]);
+      const { stdout } = await execFileAsync("diff", [
+        "-ruN",
+        "--exclude=.git",
+        "--exclude=.DS_Store",
+        "--exclude=node_modules",
+        "--exclude=.next",
+        "--exclude=dist",
+        "--exclude=build",
+        "--exclude=coverage",
+        "--exclude=.turbo",
+        "--exclude=.cache",
+        original,
+        candidate
+      ]);
       return stdout;
     } catch (err) {
       const error = err as { code?: number; stdout?: string; message?: string };

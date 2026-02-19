@@ -971,7 +971,18 @@ export class TaskGateway {
       return short || raw;
     }
     if (err.code === "TEST_FAILED") {
-      return "test command exited non-zero";
+      const prefix = "Tests failed.";
+      const raw = err.message.startsWith(prefix) ? err.message.slice(prefix.length).trim() : err.message.trim();
+      if (!raw) {
+        return "test command exited non-zero";
+      }
+      const cleaned = raw
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 8)
+        .join(" | ");
+      return truncate(cleaned || raw, 300);
     }
     if (err.code === "AGENT_FAILED") {
       return "agent command failed to produce a valid result";

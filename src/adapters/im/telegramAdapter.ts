@@ -71,7 +71,8 @@ export class TelegramAdapter implements IMAdapter {
     const url = `https://api.telegram.org/bot${this.token}/sendMessage`;
     const body: Record<string, unknown> = {
       chat_id: chatId,
-      text: content
+      text: content,
+      disable_web_page_preview: true
     };
     if (buttons && buttons.length > 0) {
       body.reply_markup = {

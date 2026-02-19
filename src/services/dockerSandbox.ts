@@ -20,18 +20,25 @@ export interface DockerSandboxOptions {
   defaultTestCommand: string;
 }
 
+type SandboxRuntimeOptions = {
+  image: string;
+  defaultTestCommand: string;
+  allowedTestCommands: string[];
+};
+
 export class DockerSandbox {
   constructor(private readonly options: DockerSandboxOptions) {}
 
   async runValidation(task: TaskSpec, candidatePath: string): Promise<SandboxExecutionResult> {
     const hostRepoPath = this.resolveRepoPath(task.repo);
+    const runtime = this.resolveRuntimeOptions(hostRepoPath);
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `okaydokki-${task.taskId}-`));
     const workDir = path.join(tempDir, "work");
     const outDir = path.join(tempDir, "out");
     fs.mkdirSync(workDir, { recursive: true });
     fs.mkdirSync(outDir, { recursive: true });
 
-    const testCommand = this.assertAllowedTestCommand(this.options.defaultTestCommand);
+    const testCommand = this.assertAllowedTestCommand(runtime.defaultTestCommand, runtime.allowedTestCommands);
 
     const script = [
       "set -eu",
@@ -64,7 +71,7 @@ export class DockerSandbox {
         `${outDir}:/out`,
         "-e",
         `TEST_CMD=${testCommand}`,
-        this.options.image,
+        runtime.image,
         "sh",
         "-lc",
         script
@@ -97,11 +104,98 @@ export class DockerSandbox {
     return resolved;
   }
 
-  private assertAllowedTestCommand(command: string): string {
-    if (!this.options.allowedTestCommands.includes(command)) {
+  private assertAllowedTestCommand(command: string, allowedCommands: string[]): string {
+    if (!allowedCommands.includes(command)) {
       throw new Error(`Test command is not allowed: ${command}`);
     }
     return command;
+  }
+
+  private resolveRuntimeOptions(repoPath: string): SandboxRuntimeOptions {
+    const filePath = path.join(repoPath, "okaydokki.yaml");
+    if (!fs.existsSync(filePath)) {
+      return {
+        image: this.options.image,
+        defaultTestCommand: this.options.defaultTestCommand,
+        allowedTestCommands: this.options.allowedTestCommands
+      };
+    }
+
+    const parsed = this.parseSimpleYaml(fs.readFileSync(filePath, "utf8"));
+    const image = this.readString(parsed.sandbox_image) ?? this.options.image;
+    const defaultTestCommand = this.readString(parsed.test_command) ?? this.options.defaultTestCommand;
+    const parsedAllowed = this.readStringList(parsed.allowed_test_commands);
+    const allowedTestCommands = parsedAllowed.length > 0 ? parsedAllowed : this.options.allowedTestCommands;
+    return {
+      image,
+      defaultTestCommand,
+      allowedTestCommands
+    };
+  }
+
+  private parseSimpleYaml(raw: string): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    const lines = raw.split("\n");
+    let listKey: string | null = null;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) {
+        continue;
+      }
+      const listMatch = line.match(/^- (.+)$/);
+      if (listKey && listMatch) {
+        const current = out[listKey];
+        if (!Array.isArray(current)) {
+          out[listKey] = [];
+        }
+        (out[listKey] as string[]).push(this.stripQuotes(listMatch[1] ?? ""));
+        continue;
+      }
+
+      const sep = line.indexOf(":");
+      if (sep < 0) {
+        continue;
+      }
+      const key = line.slice(0, sep).trim();
+      const value = line.slice(sep + 1).trim();
+      if (!key) {
+        continue;
+      }
+      if (value === "") {
+        out[key] = [];
+        listKey = key;
+        continue;
+      }
+      out[key] = this.stripQuotes(value);
+      listKey = null;
+    }
+
+    return out;
+  }
+
+  private stripQuotes(value: string): string {
+    const trimmed = value.trim();
+    if (
+      (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      return trimmed.slice(1, -1);
+    }
+    return trimmed;
+  }
+
+  private readString(value: unknown): string | null {
+    return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+  }
+
+  private readStringList(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean);
   }
 
   private readFileSafe(filePath: string): string {

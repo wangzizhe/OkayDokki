@@ -36,6 +36,14 @@ function parsePositiveInt(value: string | undefined, defaultValue: number): numb
   return Math.floor(n);
 }
 
+function readNonEmpty(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 function parseTelegramMode(value: string | undefined): TelegramMode {
   const normalized = (value ?? "polling").trim().toLowerCase();
   if (normalized === "polling" || normalized === "webhook") {
@@ -82,8 +90,8 @@ export const config = {
   auditLogPath: process.env.AUDIT_LOG_PATH ?? "./audit.jsonl",
   repoSnapshotRoot: process.env.REPO_SNAPSHOT_ROOT ?? "./repos",
   sandboxImage: process.env.SANDBOX_IMAGE ?? "node:22-bookworm-slim",
-  defaultTestCommand: process.env.DEFAULT_TEST_COMMAND ?? "npm test",
-  allowedTestCommands: (process.env.ALLOWED_TEST_COMMANDS ?? "npm test")
+  defaultTestCommand: readNonEmpty(process.env.DEFAULT_TEST_COMMAND) ?? "npm test",
+  allowedTestCommands: (readNonEmpty(process.env.ALLOWED_TEST_COMMANDS) ?? "npm test")
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean),

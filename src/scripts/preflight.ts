@@ -117,6 +117,103 @@ function checkRepoRootAndDefaultRepo(): CheckResult[] {
     return out;
   }
   out.push(ok("default repo", defaultRepoPath));
+  out.push(...checkRepoRuntimeConfig(defaultRepoPath));
+  return out;
+}
+
+function checkRepoRuntimeConfig(repoPath: string): CheckResult[] {
+  const out: CheckResult[] = [];
+  const cfgPath = path.join(repoPath, "okaydokki.yaml");
+  if (!fs.existsSync(cfgPath)) {
+    out.push(warn("repo runtime config", `missing: ${cfgPath} (fallback to .env defaults)`));
+    return out;
+  }
+  out.push(ok("repo runtime config", cfgPath));
+
+  const parsed = parseSimpleYaml(fs.readFileSync(cfgPath, "utf8"));
+  const sandboxImage = asNonEmptyString(parsed.sandbox_image);
+  const testCommand = asNonEmptyString(parsed.test_command);
+
+  if (!sandboxImage) {
+    out.push(fail("repo sandbox_image", "missing in okaydokki.yaml"));
+  } else {
+    out.push(ok("repo sandbox_image", sandboxImage));
+    out.push(checkDockerImageAvailable(sandboxImage));
+  }
+  if (!testCommand) {
+    out.push(fail("repo test_command", "missing in okaydokki.yaml"));
+  } else {
+    out.push(ok("repo test_command", testCommand));
+  }
+
+  return out;
+}
+
+function checkDockerImageAvailable(image: string): CheckResult {
+  const res = runCmd("docker", ["image", "inspect", image]);
+  if (res.status !== 0) {
+    return warn("repo sandbox image", `not found locally: ${image} (build/pull before running tasks)`);
+  }
+  return ok("repo sandbox image", "available locally");
+}
+
+function asNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function stripQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function parseSimpleYaml(raw: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const lines = raw.split("\n");
+  let listKey: string | null = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const listMatch = line.match(/^- (.+)$/);
+    if (listKey && listMatch) {
+      const current = out[listKey];
+      if (!Array.isArray(current)) {
+        out[listKey] = [];
+      }
+      (out[listKey] as string[]).push(stripQuotes(listMatch[1] ?? ""));
+      continue;
+    }
+
+    const sep = line.indexOf(":");
+    if (sep < 0) {
+      continue;
+    }
+    const key = line.slice(0, sep).trim();
+    const value = line.slice(sep + 1).trim();
+    if (!key) {
+      continue;
+    }
+    if (value === "") {
+      out[key] = [];
+      listKey = key;
+      continue;
+    }
+    out[key] = stripQuotes(value);
+    listKey = null;
+  }
+
   return out;
 }
 
