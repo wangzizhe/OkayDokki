@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - `.env.example` reorganized into required/optional/default sections with clearer comments.
 - Unified provider semantics so `/task` and default chat behavior follow `AGENT_PROVIDER` by default.
 - Draft PR summary terminology updated from `Intent` to `Requested`, with an added `Delivered` line.
+- Added an architecture diagram to `docs/philosophy.md` to visualize approval gates, sandbox boundaries, PR delivery, and audit flow.
 
 ### Fixed
 

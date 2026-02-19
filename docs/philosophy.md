@@ -5,6 +5,31 @@
 It can execute work, but it cannot decide on your behalf.
 It can move tasks forward, but it cannot cross authority boundaries.
 
+## Architecture at a Glance
+
+```mermaid
+flowchart TD
+    U["User (Telegram/IM)"] --> G["Task Gateway"]
+    G --> P["Plan/Task Parsing"]
+    P --> A1{"Human approval required?"}
+    A1 -->|No| C["Clarify / Revise Plan"]
+    C --> A1
+    A1 -->|Yes| R["Task Runner"]
+
+    R --> H["Host Agent Execution (CLI)"]
+    H --> D["Diff + Metadata"]
+    D --> V["Policy Checks"]
+    V --> S["Sandbox Validation (Docker: no network + read-only mount)"]
+    S --> A2{"Human write approval confirmed?"}
+    A2 -->|No| X["Stop / Reject"]
+    A2 -->|Yes| PR["Draft PR Creation"]
+    PR --> M["Human Review + Merge"]
+
+    R --> L["Audit Logger (JSONL)"]
+    G --> L
+    M --> L
+```
+
 ## 1. AI Is an Executor, Not a Decision Maker
 
 Core rule:
