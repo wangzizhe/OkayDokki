@@ -715,7 +715,7 @@ export class TaskGateway {
       const result = await this.service.applyAction(taskId, "approve", `tg:${userId}`);
       await this.im.sendMessage(
         chatId,
-        `Task ${taskId} completed.\nTests: ${result.runResult?.testsResult ?? "unknown"}\nPR: ${result.runResult?.prLink ?? "not created"}`
+        this.buildCompletionMessage(taskId, result.task.intent, result.runResult)
       );
     } catch (err) {
       if (err instanceof TaskServiceError && err.statusCode === 500) {
@@ -860,13 +860,89 @@ export class TaskGateway {
   }
 
   private buildFailureMessage(taskId: string, err: TaskServiceError): string {
-    const lines = [`Task ${taskId} failed. Code: ${err.code}`];
+    const lines = [`Task ${taskId} failed.`];
     const detail = this.failureDetail(err);
-    if (detail) {
-      lines.push(`Reason: ${detail}`);
-    }
-    lines.push(`Hint: ${this.failureHint(err.code)}`);
+    lines.push("Execution summary:");
+    lines.push(`- Failed at: ${this.failureStage(err.code)}`);
+    lines.push(`- Code: ${err.code}`);
+    lines.push(`- Reason: ${detail ?? "See audit log for details."}`);
+    lines.push(`- Suggested next step: ${this.failureHint(err.code)}`);
     return lines.join("\n");
+  }
+
+  private buildCompletionMessage(
+    taskId: string,
+    intent: string,
+    runResult:
+      | {
+          testsResult?: string;
+          prLink?: string | null;
+          hasDiff?: boolean;
+          changedFiles?: string[];
+          insertions?: number;
+          deletions?: number;
+        }
+      | undefined
+  ): string {
+    const tests = runResult?.testsResult ?? "unknown";
+    const pr = runResult?.prLink ?? "not created";
+    const hasDiff = Boolean(runResult?.hasDiff);
+    const files = runResult?.changedFiles ?? [];
+    const whatChanged = this.buildWhatChangedSummary(hasDiff, files, intent);
+    return [
+      `Task ${taskId} completed.`,
+      "Execution summary:",
+      `- ${whatChanged}`,
+      `- Files changed: ${this.buildFilesSummary(hasDiff, files)}`,
+      `- Tests: ${tests}`,
+      `- PR: ${pr}`
+    ].join("\n");
+  }
+
+  private buildWhatChangedSummary(hasDiff: boolean, changedFiles: string[], intent: string): string {
+    if (!hasDiff) {
+      return "No file changes were required for this run.";
+    }
+    if (changedFiles.length === 0) {
+      return "Applied code changes to complete the requested task.";
+    }
+    const normalized = changedFiles.map((file) => file.toLowerCase());
+    const docFiles = normalized.filter((f) => f.endsWith(".md") || f.includes("readme"));
+    const testFiles = normalized.filter((f) => f.includes("/test") || f.includes("tests/") || f.endsWith(".test.ts") || f.endsWith(".test.js"));
+    const codeFiles = normalized.filter((f) => !docFiles.includes(f) && !testFiles.includes(f));
+
+    const actions: string[] = [];
+    if (docFiles.length > 0) {
+      actions.push("documentation");
+    }
+    if (testFiles.length > 0) {
+      actions.push("test coverage");
+    }
+    if (codeFiles.length > 0) {
+      actions.push("application code");
+    }
+
+    if (actions.length === 0) {
+      return "Applied file updates and completed the requested task.";
+    }
+    if (actions.length === 1) {
+      return `Updated ${actions[0]}.`;
+    }
+    if (actions.length === 2) {
+      return `Updated ${actions[0]} and ${actions[1]}.`;
+    }
+    return `Updated ${actions[0]}, ${actions[1]}, and ${actions[2]}.`;
+  }
+
+  private buildFilesSummary(hasDiff: boolean, changedFiles: string[]): string {
+    if (!hasDiff) {
+      return "None.";
+    }
+    if (changedFiles.length === 0) {
+      return "Changes detected (file list unavailable).";
+    }
+    const top = changedFiles.slice(0, 5);
+    return `${top.join(", ")}${changedFiles.length > 5 ? ", ..." : ""}.`;
   }
 
   private failureDetail(err: TaskServiceError): string | null {
@@ -896,6 +972,19 @@ export class TaskGateway {
       return "draft PR creation step failed";
     }
     return null;
+  }
+
+  private failureStage(code: string): string {
+    const stages: Record<string, string> = {
+      SNAPSHOT_MISSING: "repo snapshot preparation",
+      AGENT_FAILED: "agent execution",
+      SANDBOX_FAILED: "sandbox validation",
+      POLICY_VIOLATION: "diff policy checks",
+      TEST_FAILED: "test execution",
+      PR_CREATE_FAILED: "draft PR creation",
+      RUN_FAILED: "task execution"
+    };
+    return stages[code] ?? "task execution";
   }
 
   private planFeedbackSessionKey(chatId: string, userId: string): string {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 import { AgentAdapter } from "../adapters/agent/agentAdapter.js";
 import { TaskRunResult, TaskSpec } from "../types.js";
 import { PrCreator, PrCreatorError } from "./prCreator.js";
@@ -55,6 +56,7 @@ export class TaskRunner {
 
     const diffHash = createHash("sha256").update(hostResult.diff).digest("hex");
     const hasDiff = hostResult.diff.trim().length > 0;
+    const diffSummary = summarizeDiff(hostResult.diff);
     if (hasDiff) {
       const violations = evaluateDiffPolicy(hostResult.diff, this.diffPolicy);
       if (violations.length > 0) {
@@ -83,9 +85,74 @@ export class TaskRunner {
       testLog: sandboxResult.testLog,
       diffHash,
       hasDiff,
+      changedFiles: diffSummary.changedFiles,
+      insertions: diffSummary.insertions,
+      deletions: diffSummary.deletions,
       agentLogs: hostResult.agentLogs,
       agentMeta: hostResult.agentMeta,
       prLink
     };
   }
+}
+
+function summarizeDiff(diff: string): { changedFiles: string[]; insertions: number; deletions: number } {
+  const changed = new Set<string>();
+  let insertions = 0;
+  let deletions = 0;
+
+  for (const rawLine of diff.split("\n")) {
+    const line = rawLine.trimEnd();
+    const gitMatch = line.match(/^diff --git a\/(.+)\s+b\/(.+)$/);
+    if (gitMatch) {
+      changed.add(gitMatch[2] ?? gitMatch[1]);
+      continue;
+    }
+    const ruMatch = line.match(/^diff -ruN\s+(.+)\s+(.+)$/);
+    if (ruMatch) {
+      const parsed = normalizePathFromRuDiff(ruMatch[2] ?? ruMatch[1] ?? "");
+      changed.add(parsed);
+      continue;
+    }
+    if (line.startsWith("+++ ") || line.startsWith("--- ")) {
+      continue;
+    }
+    if (line.startsWith("+")) {
+      insertions += 1;
+      continue;
+    }
+    if (line.startsWith("-")) {
+      deletions += 1;
+    }
+  }
+
+  return {
+    changedFiles: Array.from(changed),
+    insertions,
+    deletions
+  };
+}
+
+function normalizePathFromRuDiff(rawPath: string): string {
+  const cleaned = rawPath.replace(/^"+|"+$/g, "").trim();
+  if (!cleaned) {
+    return "unknown-file";
+  }
+  const normalized = cleaned.replace(/\\/g, "/");
+
+  const workMarker = "/work/";
+  const workIdx = normalized.indexOf(workMarker);
+  if (workIdx >= 0) {
+    const rel = normalized.slice(workIdx + workMarker.length);
+    return rel || "unknown-file";
+  }
+  if (normalized.startsWith("work/")) {
+    const rel = normalized.slice("work/".length);
+    return rel || "unknown-file";
+  }
+
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+  }
+  return path.basename(normalized);
 }

@@ -51,6 +51,9 @@ export interface TaskRunResult {
   testLog: string;
   diffHash: string;
   hasDiff: boolean;
+  changedFiles?: string[];
+  insertions?: number;
+  deletions?: number;
   agentLogs: string[];
   agentMeta: Record<string, string>;
   prLink: string | null;

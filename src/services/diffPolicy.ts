@@ -23,6 +23,29 @@ function extractPathFromPlusLine(line: string): string | null {
   return null;
 }
 
+function extractPathFromBinaryLine(line: string): string | null {
+  const match = line.match(/^Binary files\s+(.+)\s+and\s+(.+)\s+differ$/);
+  if (!match) {
+    return null;
+  }
+  const rhs = (match[2] ?? "").trim().replace(/^"+|"+$/g, "");
+  if (!rhs) {
+    return null;
+  }
+  const normalized = rhs.replace(/\\/g, "/");
+  if (normalized.startsWith("/work/")) {
+    return normalizePath(normalized.slice("/work/".length));
+  }
+  if (normalized.startsWith("b/")) {
+    return normalizePath(normalized.slice(2));
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+  }
+  return normalized;
+}
+
 export function extractChangedFiles(diff: string): string[] {
   const files = new Set<string>();
   for (const rawLine of diff.split("\n")) {
@@ -35,6 +58,13 @@ export function extractChangedFiles(diff: string): string[] {
     }
     if (line.startsWith("+++ ")) {
       const file = extractPathFromPlusLine(line);
+      if (file) {
+        files.add(file);
+      }
+      continue;
+    }
+    if (line.startsWith("Binary files ")) {
+      const file = extractPathFromBinaryLine(line);
       if (file) {
         files.add(file);
       }
@@ -70,9 +100,19 @@ export function evaluateDiffPolicy(diff: string, options: DiffPolicyOptions): st
     options.disallowBinaryPatch &&
     /(GIT binary patch|Binary files .* differ)/m.test(diff)
   ) {
-    violations.push("binary patch content is not allowed");
+    const binaryFiles = diff
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("Binary files "))
+      .map(extractPathFromBinaryLine)
+      .filter((value): value is string => Boolean(value));
+    const sample = binaryFiles.slice(0, 3);
+    if (sample.length > 0) {
+      violations.push(`binary patch content is not allowed (files: ${sample.join(", ")})`);
+    } else {
+      violations.push("binary patch content is not allowed");
+    }
   }
 
   return violations;
 }
-
