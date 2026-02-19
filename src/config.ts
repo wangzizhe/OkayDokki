@@ -4,6 +4,7 @@ import { DeliveryStrategy } from "./types.js";
 dotenv.config();
 export type TelegramMode = "polling" | "webhook";
 export type AgentAuthMode = "session" | "api";
+export type AgentProvider = "codex" | "claude" | "gemini";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -65,6 +66,16 @@ function parseDeliveryStrategy(value: string | undefined): DeliveryStrategy {
 
 const deliveryStrategy = parseDeliveryStrategy(process.env.DELIVERY_STRATEGY);
 
+function parseAgentProvider(value: string | undefined): AgentProvider {
+  const normalized = (value ?? "codex").trim().toLowerCase();
+  if (normalized === "codex" || normalized === "claude" || normalized === "gemini") {
+    return normalized;
+  }
+  throw new Error(`Invalid AGENT_PROVIDER: ${value}. Expected codex, claude, or gemini.`);
+}
+
+const agentProvider = parseAgentProvider(process.env.AGENT_PROVIDER);
+
 export const config = {
   port: Number(process.env.PORT ?? "3000"),
   dbPath: process.env.DATABASE_PATH ?? "./okaydokki.db",
@@ -85,10 +96,12 @@ export const config = {
   disallowBinaryPatch: parseBoolean(process.env.DISALLOW_BINARY_PATCH, true),
   agentCliTemplate:
     process.env.AGENT_CLI_TEMPLATE ??
-    "printf 'agent placeholder for %s\\n' \"$OKD_INTENT\" && touch .okaydokki-agent && printf '{\"engine\":\"codex\",\"protocol\":\"v1\"}\\n' > \"$OKD_OUTDIR/agent.meta.json\"",
+    "printf 'agent placeholder for %s\\n' \"$OKD_INTENT\" && touch .okaydokki-agent && printf '{\"engine\":\"generic\",\"protocol\":\"v1\"}\\n' > \"$OKD_OUTDIR/agent.meta.json\"",
+  agentProvider,
   agentAuthMode,
   agentSessionCheckCmd: process.env.AGENT_SESSION_CHECK_CMD ?? "",
   chatCliBin: process.env.CHAT_CLI_BIN ?? "",
+  chatCliTemplate: process.env.CHAT_CLI_TEMPLATE ?? "",
   chatHistoryTurns: parsePositiveInt(process.env.CHAT_HISTORY_TURNS, 6),
   chatMaxPromptChars: parsePositiveInt(process.env.CHAT_MAX_PROMPT_CHARS, 1200),
   chatTimeoutMs: parsePositiveInt(process.env.CHAT_TIMEOUT_MS, 45000),

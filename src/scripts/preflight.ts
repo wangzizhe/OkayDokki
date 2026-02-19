@@ -140,6 +140,15 @@ function parseAgentAuthMode(): CheckResult | { mode: "session" | "api" } {
   return { mode };
 }
 
+function parseAgentProvider(): CheckResult | { mode: "codex" | "claude" | "gemini" } {
+  const raw = process.env.AGENT_PROVIDER ?? "codex";
+  const mode = raw.trim().toLowerCase();
+  if (mode !== "codex" && mode !== "claude" && mode !== "gemini") {
+    return fail("AGENT_PROVIDER", `invalid value '${raw}', expected codex, claude, or gemini`);
+  }
+  return { mode: mode as "codex" | "claude" | "gemini" };
+}
+
 function extractCommandBinary(command: string): string | null {
   const trimmed = command.trim();
   if (!trimmed) {
@@ -168,6 +177,17 @@ function checkAgentCliAvailable(): CheckResult {
   }
   const line = (res.stdout || res.stderr).trim().split("\n")[0] ?? "";
   return ok("agent cli", `${bin}: ${line}`);
+}
+
+function checkChatTemplate(provider: "codex" | "claude" | "gemini"): CheckResult {
+  const value = (process.env.CHAT_CLI_TEMPLATE ?? "").trim();
+  if (value) {
+    if (!value.includes("{{prompt}}")) {
+      return warn("CHAT_CLI_TEMPLATE", "configured but missing {{prompt}} placeholder");
+    }
+    return ok("CHAT_CLI_TEMPLATE", "configured");
+  }
+  return ok("CHAT_CLI_TEMPLATE", `not set (using built-in ${provider} chat invocation)`);
 }
 
 function checkAgentSessionAuth(): CheckResult {
@@ -239,6 +259,7 @@ function printResults(results: CheckResult[]): void {
 function main(): void {
   const modeResult = parseTelegramMode();
   const authModeResult = parseAgentAuthMode();
+  const providerResult = parseAgentProvider();
   const deliveryResult = parseDeliveryStrategy();
   const results: CheckResult[] = [];
   if ("level" in modeResult) {
@@ -251,6 +272,11 @@ function main(): void {
   } else {
     results.push(ok("AGENT_AUTH_MODE", authModeResult.mode));
   }
+  if ("level" in providerResult) {
+    results.push(providerResult);
+  } else {
+    results.push(ok("AGENT_PROVIDER", providerResult.mode));
+  }
   if ("level" in deliveryResult) {
     results.push(deliveryResult);
   } else {
@@ -262,6 +288,9 @@ function main(): void {
     runCheck("TELEGRAM_BOT_TOKEN", () => requiredEnv("TELEGRAM_BOT_TOKEN")),
     runCheck("AGENT_CLI_TEMPLATE", checkAgentTemplate),
     runCheck("agent cli", checkAgentCliAvailable),
+    runCheck("CHAT_CLI_TEMPLATE", () =>
+      checkChatTemplate("mode" in providerResult ? providerResult.mode : "codex")
+    ),
     runCheck("DATABASE_PATH", () => optionalEnvNotPlaceholder("DATABASE_PATH")),
     runCheck("docker", checkDocker),
     runCheck("gh", checkGh)

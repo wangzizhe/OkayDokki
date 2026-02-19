@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { AgentProvider } from "../config.js";
 import { resolveRepoSnapshotPath } from "../utils/repoSnapshot.js";
 import { ChatMemoryRepository } from "../repositories/chatMemoryRepository.js";
 import { AuditLogger } from "./auditLogger.js";
@@ -13,7 +14,9 @@ export class ChatService {
   private readonly activeRequests = new Map<string, AbortController>();
 
   constructor(
+    private readonly provider: AgentProvider,
     private readonly cliBin: string,
+    private readonly cliTemplate: string,
     private readonly repoRoot: string,
     private readonly memory: ChatMemoryRepository,
     private readonly historyTurns: number,
@@ -81,26 +84,7 @@ export class ChatService {
     });
 
     try {
-      const { stdout } = await execFileAsync(
-        this.cliBin,
-        [
-          "exec",
-          "--skip-git-repo-check",
-          "--sandbox",
-          "read-only",
-          "-C",
-          repoPath,
-          "--output-last-message",
-          outFile,
-          finalPrompt
-        ],
-        {
-          cwd: process.cwd(),
-          env: process.env,
-          timeout: this.timeoutMs,
-          signal: controller.signal
-        }
-      );
+      const { stdout } = await this.execChatCommand(finalPrompt, repoPath, outFile, controller);
 
       const lastMessage = fs.existsSync(outFile) ? fs.readFileSync(outFile, "utf8").trim() : "";
       const output = lastMessage || stdout.trim();
@@ -143,6 +127,73 @@ export class ChatService {
     }
   }
 
+  private async execChatCommand(
+    finalPrompt: string,
+    repoPath: string,
+    outFile: string,
+    controller: AbortController
+  ): Promise<{ stdout: string }> {
+    if (this.cliTemplate.trim() !== "") {
+      const command = this.renderTemplate(this.cliTemplate, {
+        prompt: finalPrompt,
+        repo_path: repoPath,
+        out_file: outFile
+      });
+      return execFileAsync("sh", ["-lc", command], {
+        cwd: process.cwd(),
+        env: process.env,
+        timeout: this.timeoutMs,
+        signal: controller.signal
+      });
+    }
+
+    if (this.provider !== "codex") {
+      // Generic fallback for non-codex providers: run provider CLI with prompt as positional input.
+      // This keeps default chat mode zero-config for provider switches.
+      return execFileAsync(
+        "sh",
+        ["-lc", `${this.cliBin} ${shellEscape(finalPrompt)}`],
+        {
+          cwd: repoPath,
+          env: process.env,
+          timeout: this.timeoutMs,
+          signal: controller.signal
+        }
+      );
+    }
+
+    return execFileAsync(
+      this.cliBin,
+      [
+        "exec",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "-C",
+        repoPath,
+        "--output-last-message",
+        outFile,
+        finalPrompt
+      ],
+      {
+        cwd: process.cwd(),
+        env: process.env,
+        timeout: this.timeoutMs,
+        signal: controller.signal
+      }
+    );
+  }
+
+  private renderTemplate(template: string, vars: Record<string, string>): string {
+    return template.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, key: string) => {
+      const value = vars[key];
+      if (value === undefined) {
+        throw new Error(`Unknown CHAT_CLI_TEMPLATE key: ${key}`);
+      }
+      return shellEscape(value);
+    });
+  }
+
   reset(chatId: string, userId: string): void {
     this.memory.clear(chatId, userId);
   }
@@ -156,4 +207,8 @@ export class ChatService {
     controller.abort();
     return true;
   }
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
 }

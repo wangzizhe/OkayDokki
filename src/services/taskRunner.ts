@@ -71,7 +71,17 @@ export class TaskRunner {
     let prLink: string | null = null;
     if (hasDiff) {
       try {
-        prLink = await this.prCreator.createDraftPr(task, hostResult.candidatePath);
+        const policyChecks = [
+          `Blocked paths guard: enabled (${this.diffPolicy.blockedPathPrefixes.join(", ") || "none"})`,
+          `Binary patch guard: ${this.diffPolicy.disallowBinaryPatch ? "enabled" : "disabled"}`,
+          `Max changed files: ${this.diffPolicy.maxChangedFiles}`,
+          `Max diff bytes: ${this.diffPolicy.maxDiffBytes}`
+        ];
+        prLink = await this.prCreator.createDraftPr(task, hostResult.candidatePath, {
+          testsResult,
+          changedFiles: diffSummary.changedFiles,
+          policyChecks
+        });
       } catch (err) {
         hostResult.cleanup();
         const msg = err instanceof PrCreatorError ? err.message : String(err);

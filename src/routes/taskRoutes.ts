@@ -41,7 +41,7 @@ export function createTaskRoutes(service: TaskService): express.Router {
         triggerUser: body.trigger_user,
         repo: body.repo,
         intent: body.intent,
-        agent: body.agent ?? "codex",
+        agent: body.agent ?? config.agentProvider,
         deliveryStrategy: body.delivery_strategy ?? config.deliveryStrategy,
         baseBranch: body.base_branch ?? config.baseBranch
       });

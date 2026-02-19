@@ -62,6 +62,57 @@ npm run preflight
 npm run dev
 ```
 
+## Minimal Config
+
+- `TELEGRAM_MODE` (`polling` recommended for self-hosted)
+- `TELEGRAM_BOT_TOKEN`
+- `DEFAULT_REPO`
+- `AGENT_AUTH_MODE` (`session` recommended)
+- `AGENT_PROVIDER` (`codex` | `claude` | `gemini`)
+- `AGENT_CLI_TEMPLATE`
+- `DELIVERY_STRATEGY` (`rolling` or `isolated`)
+- `BASE_BRANCH` (usually `main`)
+
+## Provider Presets
+
+Pick one provider and copy its preset into `.env`.
+These presets are examples, verify flags against your installed CLI version.
+
+### Codex (CLI session login)
+
+```env
+AGENT_PROVIDER=codex
+AGENT_CLI_TEMPLATE=/Applications/Codex.app/Contents/Resources/codex exec --skip-git-repo-check --sandbox workspace-write "$OKD_INTENT"
+AGENT_SESSION_CHECK_CMD=/Applications/Codex.app/Contents/Resources/codex login status
+```
+
+### Claude (example template)
+
+```env
+AGENT_PROVIDER=claude
+AGENT_CLI_TEMPLATE=claude "$OKD_INTENT"
+AGENT_SESSION_CHECK_CMD=claude --version
+```
+
+### Gemini (example template)
+
+```env
+AGENT_PROVIDER=gemini
+AGENT_CLI_TEMPLATE=gemini "$OKD_INTENT"
+AGENT_SESSION_CHECK_CMD=gemini --version
+```
+
+Notes:
+- Claude/Gemini command flags vary by CLI release. Adjust the command to your installed version.
+- Keep `"$OKD_INTENT"` in the command so task intent is passed to the agent.
+
+## Safety Defaults
+
+- Approval required before write/run
+- Draft PR only
+- Diff policy guard (blocked paths, size/file limits, binary controls)
+- Full audit log in `audit.jsonl`
+
 ## Telegram Usage
 
 ### 1) Normal message (Chat)
@@ -88,14 +139,16 @@ Example:
 /task repo=okd-sandbox add one line "Updated by OkayDokki" to README.md and keep npm test passing
 ```
 
-## Core Commands
+## Commands
+
+### Core Commands
 
 - `/task status <task_id>`: show task status
 - `/rerun <task_id>`: rerun as a new task
 - `/help`: show compact command guide
 - `/last`: show latest task summary
 
-## Advanced Commands
+### Advanced Commands
 
 - `/strategy`: show your strategy preference
 - `/strategy rolling|isolated`: set preference
@@ -152,19 +205,6 @@ Expected outcome:
 | `SANDBOX_FAILED` | Sandbox validation/test failed | Verify Docker/image and allowed test command |
 | `PR_CREATE_FAILED` | Draft PR creation failed | Verify git push permission and `gh auth status` |
 
-## Troubleshooting Checklist
-
-- Preflight failed
-  - Run `npm run preflight` and fix all `[FAIL]` items first
-- `POLICY_VIOLATION`
-  - Reduce task scope or adjust `.env` policy limits/path guards
-- `AGENT_FAILED`
-  - Verify `AGENT_CLI_TEMPLATE` and provider login/session status
-- `SANDBOX_FAILED`
-  - Verify Docker daemon/image and allowed test command
-- `PR_CREATE_FAILED`
-  - Verify git remote/push rights and `gh auth status`
-
 ## Operations
 
 - Upgrade
@@ -174,31 +214,19 @@ Expected outcome:
 - Backup DB and audit log
   - `cp okaydokki.db backup-okaydokki.db && cp audit.jsonl backup-audit.jsonl`
 
-## Minimal Config
+## Design Philosophy
 
-- `TELEGRAM_MODE` (`polling` recommended for self-hosted)
-- `TELEGRAM_BOT_TOKEN`
-- `DEFAULT_REPO`
-- `AGENT_AUTH_MODE` (`session` recommended)
-- `AGENT_CLI_TEMPLATE`
-- `DELIVERY_STRATEGY` (`rolling` or `isolated`)
-- `BASE_BRANCH` (usually `main`)
+- `docs/philosophy.md`
 
-## Safety Defaults
+## Changelog
 
-- Approval required before write/run
-- Draft PR only
-- Diff policy guard (blocked paths, size/file limits, binary controls)
-- Full audit log in `audit.jsonl`
-
-## Docs
-
-- `docs/contracts/task-lifecycle.md`
-- `docs/contracts/gateway-api.md`
-- `docs/runbook-live-test.md`
-- `docs/provider-auth.md`
-- `docs/checklists/regression.md`
+- `CHANGELOG.md`
 
 ## License
 
 Apache License 2.0 (`Apache-2.0`). See `LICENSE`.
+
+## Docs
+
+- `docs/runbook-live-test.md`
+- `docs/checklists/regression.md`

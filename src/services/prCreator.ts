@@ -9,10 +9,16 @@ const execFileAsync = promisify(execFile);
 
 export class PrCreatorError extends Error {}
 
+type PrBodyContext = {
+  testsResult?: string;
+  changedFiles?: string[];
+  policyChecks?: string[];
+};
+
 export class PrCreator {
   constructor(private readonly repoRoot: string) {}
 
-  async createDraftPr(task: TaskSpec, candidatePath: string): Promise<string> {
+  async createDraftPr(task: TaskSpec, candidatePath: string, context?: PrBodyContext): Promise<string> {
     const repoPath = resolveRepoSnapshotPath(this.repoRoot, task.repo);
     if (!fs.existsSync(repoPath)) {
       throw new PrCreatorError(`Repo snapshot not found: ${repoPath}`);
@@ -22,13 +28,29 @@ export class PrCreator {
     const stack = await this.prepareGitBranch(repoPath, task);
 
     const title = `chore(agent): ${task.intent}`;
+    const topFiles = (context?.changedFiles ?? []).slice(0, 5);
+    const filesSummary =
+      topFiles.length > 0 ? `${topFiles.join(", ")}${(context?.changedFiles?.length ?? 0) > 5 ? ", ..." : ""}` : "see PR diff";
+    const policyChecks = context?.policyChecks ?? ["Diff policy checks passed."];
     const body = [
-      "Automated by OkayDokki.",
+      "## Summary",
+      `- Requested: ${task.intent}`,
+      `- Delivered: Updated ${filesSummary}.`,
+      `- Agent: ${task.agent}`,
+      `- Changed files: ${filesSummary}`,
+      "",
+      "## Validation",
+      `- Sandbox tests: ${context?.testsResult ?? "unknown"}`,
+      "",
+      "## Policy checks",
+      ...policyChecks.map((item) => `- ${item}`),
+      "",
+      "## Traceability",
       "",
       `Task ID: ${task.taskId}`,
       `Trigger user: ${task.triggerUser}`,
       "",
-      "Stack:",
+      "## Stack",
       `- Strategy: ${task.deliveryStrategy ?? "rolling"}`,
       `- Parent branch: ${stack.parentBranch}`,
       `- Merge order: ${stack.mergeOrder}`

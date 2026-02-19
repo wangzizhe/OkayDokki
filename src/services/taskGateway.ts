@@ -372,7 +372,7 @@ export class TaskGateway {
       triggerUser,
       repo,
       intent,
-      agent: "codex",
+      agent: config.agentProvider,
       deliveryStrategy,
       baseBranch
     });

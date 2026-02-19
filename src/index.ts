@@ -42,11 +42,14 @@ async function main(): Promise<void> {
   });
   const taskService = new TaskService(repo, audit, runner, config.repoSnapshotRoot, {
     deliveryStrategy: config.deliveryStrategy,
-    baseBranch: config.baseBranch
+    baseBranch: config.baseBranch,
+    agent: config.agentProvider
   });
   const telegram = new TelegramAdapter(config.telegramBotToken, config.telegramWebhookSecret);
   const chatService = new ChatService(
+    config.agentProvider,
     ChatService.deriveCliBinary(config.agentCliTemplate, config.chatCliBin),
+    config.chatCliTemplate,
     config.repoSnapshotRoot,
     chatMemory,
     config.chatHistoryTurns,

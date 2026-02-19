@@ -71,7 +71,7 @@ export class TaskService {
     private readonly audit: AuditLogger,
     private readonly runner: TaskRunner,
     private readonly repoSnapshotRoot: string,
-    private readonly defaults: { deliveryStrategy: DeliveryStrategy; baseBranch: string }
+    private readonly defaults: { deliveryStrategy: DeliveryStrategy; baseBranch: string; agent?: string }
   ) {}
 
   createTask(input: CreateTaskInput): CreateTaskResult {
@@ -84,7 +84,7 @@ export class TaskService {
       repo: input.repo,
       branch: `agent/${Date.now()}`,
       intent: input.intent,
-      agent: input.agent ?? "codex",
+      agent: input.agent ?? this.defaults.agent ?? "codex",
       status,
       createdAt: nowIso(),
       approvedBy: null,
