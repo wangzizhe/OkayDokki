@@ -31,7 +31,12 @@ export class TaskRunner {
     private readonly diffPolicy: DiffPolicyOptions
   ) {}
 
-  async run(task: TaskSpec): Promise<TaskRunResult> {
+  async run(
+    task: TaskSpec,
+    onProgress?: (stage: "AGENT_RUNNING" | "SANDBOX_TESTING" | "CREATING_PR") => Promise<void> | void
+  ): Promise<TaskRunResult> {
+    // Execution order is intentional: agent output -> sandbox validation -> diff policy -> draft PR.
+    await onProgress?.("AGENT_RUNNING");
     const agentCommand = this.agentAdapter.buildCommand(task);
     let hostResult;
     try {
@@ -45,6 +50,7 @@ export class TaskRunner {
 
     let sandboxResult;
     try {
+      await onProgress?.("SANDBOX_TESTING");
       sandboxResult = await this.sandbox.runValidation(task, hostResult.candidatePath);
     } catch (err) {
       hostResult.cleanup();
@@ -71,6 +77,7 @@ export class TaskRunner {
     let prLink: string | null = null;
     if (hasDiff) {
       try {
+        await onProgress?.("CREATING_PR");
         const policyChecks = [
           `Blocked paths guard: enabled (${this.diffPolicy.blockedPathPrefixes.join(", ") || "none"})`,
           `Binary patch guard: ${this.diffPolicy.disallowBinaryPatch ? "enabled" : "disabled"}`,
@@ -106,6 +113,7 @@ export class TaskRunner {
 }
 
 function summarizeDiff(diff: string): { changedFiles: string[]; insertions: number; deletions: number } {
+  // Supports both git-style and diff -ruN output so summaries remain stable across adapters.
   const changed = new Set<string>();
   let insertions = 0;
   let deletions = 0;

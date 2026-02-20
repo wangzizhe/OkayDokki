@@ -1,10 +1,10 @@
 import { TaskRepository } from "../repositories/taskRepository.js";
 import { DeliveryStrategy, TaskRunResult, TaskSpec } from "../types.js";
 import { newTaskId } from "../utils/id.js";
-import { repoSnapshotExists, resolveRepoSnapshotPath } from "../utils/repoSnapshot.js";
 import { AuditLogger } from "./auditLogger.js";
 import { TaskRunner } from "./taskRunner.js";
 import { TaskRunnerError } from "./taskRunner.js";
+import { RepoRuntimeResolution, resolveRepoRuntime } from "./repoRuntime.js";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -20,6 +20,7 @@ export class TaskServiceError extends Error {
       | "INVALID_ACTION"
       | "STATE_CONFLICT"
       | "SNAPSHOT_MISSING"
+      | "RUNTIME_CONFIG_MISSING"
       | "TEST_FAILED"
       | "AGENT_FAILED"
       | "SANDBOX_FAILED"
@@ -52,6 +53,9 @@ export interface CreateTaskResult {
   task: TaskSpec;
   needsClarify: boolean;
   expectedPath?: string;
+  runtimeConfigPath?: string;
+  clarifyReason?: "SNAPSHOT_MISSING" | "RUNTIME_CONFIG_MISSING";
+  missingFields?: string[];
 }
 
 export interface ApplyActionResult {
@@ -63,8 +67,11 @@ export interface ListTasksResult {
   tasks: TaskSpec[];
 }
 
+type RunStage = "QUEUED" | "AGENT_RUNNING" | "SANDBOX_TESTING" | "CREATING_PR" | "COMPLETED" | "FAILED";
+
 export class TaskService {
   private readonly runningApprovals = new Set<string>();
+  private readonly progressByTask = new Map<string, RunStage>();
 
   constructor(
     private readonly repo: TaskRepository,
@@ -74,9 +81,22 @@ export class TaskService {
     private readonly defaults: { deliveryStrategy: DeliveryStrategy; baseBranch: string; agent?: string }
   ) {}
 
+  getRepoRuntime(repo: string): RepoRuntimeResolution {
+    return resolveRepoRuntime(this.repoSnapshotRoot, repo, {
+      sandboxImage: process.env.SANDBOX_IMAGE ?? "node:22-bookworm-slim",
+      testCommand: process.env.DEFAULT_TEST_COMMAND ?? "npm test",
+      allowedTestCommands: (process.env.ALLOWED_TEST_COMMANDS ?? "npm test")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    });
+  }
+
   createTask(input: CreateTaskInput): CreateTaskResult {
-    const hasSnapshot = repoSnapshotExists(this.repoSnapshotRoot, input.repo);
-    const status = hasSnapshot ? "WAIT_APPROVE_WRITE" : "WAIT_CLARIFY";
+    const runtime = this.getRepoRuntime(input.repo);
+    const needsRuntimeClarify = runtime.missingFields.length > 0;
+    // Tasks are runnable only when both repo snapshot and repo-level runtime config are ready.
+    const status = runtime.snapshotExists && !needsRuntimeClarify ? "WAIT_APPROVE_WRITE" : "WAIT_CLARIFY";
     const task: TaskSpec = {
       taskId: newTaskId(),
       source: { im: input.source },
@@ -101,11 +121,14 @@ export class TaskService {
       message: task.intent
     });
 
-    if (!hasSnapshot) {
+    if (!runtime.snapshotExists || needsRuntimeClarify) {
       return {
         task,
         needsClarify: true,
-        expectedPath: resolveRepoSnapshotPath(this.repoSnapshotRoot, input.repo)
+        expectedPath: runtime.repoPath,
+        runtimeConfigPath: runtime.configPath,
+        clarifyReason: runtime.snapshotExists ? "RUNTIME_CONFIG_MISSING" : "SNAPSHOT_MISSING",
+        missingFields: runtime.missingFields
       };
     }
 
@@ -141,7 +164,16 @@ export class TaskService {
     return task;
   }
 
-  async applyAction(taskId: string, action: TaskAction, actor: string): Promise<ApplyActionResult> {
+  getTaskProgress(taskId: string): RunStage | null {
+    return this.progressByTask.get(taskId) ?? null;
+  }
+
+  async applyAction(
+    taskId: string,
+    action: TaskAction,
+    actor: string,
+    onProgress?: (stage: "AGENT_RUNNING" | "SANDBOX_TESTING" | "CREATING_PR") => Promise<void> | void
+  ): Promise<ApplyActionResult> {
     if (!isTaskAction(action)) {
       throw new TaskServiceError(
         `Invalid action: ${String(action)}. Expected one of: retry, approve, reject.`,
@@ -160,13 +192,19 @@ export class TaskService {
           "STATE_CONFLICT"
         );
       }
-      const hasSnapshot = repoSnapshotExists(this.repoSnapshotRoot, task.repo);
-      if (!hasSnapshot) {
-        const expectedPath = resolveRepoSnapshotPath(this.repoSnapshotRoot, task.repo);
+      const runtime = this.getRepoRuntime(task.repo);
+      if (!runtime.snapshotExists) {
         throw new TaskServiceError(
-          `Snapshot still missing for '${task.repo}'. Expected path: ${expectedPath}`,
+          `Snapshot still missing for '${task.repo}'. Expected path: ${runtime.repoPath}`,
           409,
           "SNAPSHOT_MISSING"
+        );
+      }
+      if (runtime.missingFields.length > 0) {
+        throw new TaskServiceError(
+          `Runtime config missing for '${task.repo}'. Required fields: ${runtime.missingFields.join(", ")} (${runtime.configPath})`,
+          409,
+          "RUNTIME_CONFIG_MISSING"
         );
       }
       const updated = this.repo.transition(taskId, "WAIT_APPROVE_WRITE");
@@ -215,6 +253,8 @@ export class TaskService {
       );
     }
     this.runningApprovals.add(taskId);
+    // In-process lock prevents duplicate callback taps from starting the same task twice.
+    this.progressByTask.set(taskId, "QUEUED");
 
     const approvedTask = this.repo.transition(taskId, "RUNNING", actor);
     this.audit.append({
@@ -227,7 +267,11 @@ export class TaskService {
     });
 
     try {
-      const runResult = await this.runner.run(approvedTask);
+      // Service bridges runner progress stages to gateway notifications and task status introspection.
+      const runResult = await this.runner.run(approvedTask, async (stage) => {
+        this.progressByTask.set(taskId, stage);
+        await onProgress?.(stage);
+      });
       this.audit.append({
         timestamp: nowIso(),
         taskId,
@@ -262,6 +306,7 @@ export class TaskService {
       }
 
       const completed = this.repo.transition(taskId, "COMPLETED");
+      this.progressByTask.set(taskId, "COMPLETED");
       return { task: completed, runResult };
     } catch (err) {
       let errorCode: TaskServiceError["code"] = "RUN_FAILED";
@@ -272,6 +317,7 @@ export class TaskService {
       }
 
       const failed = this.repo.transition(taskId, "FAILED");
+      this.progressByTask.set(taskId, "FAILED");
       this.audit.append({
         timestamp: nowIso(),
         taskId,

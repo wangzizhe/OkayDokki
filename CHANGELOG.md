@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.2-beta - 2026-02-20
+
+### Added
+
+- `repoRuntime` service to resolve per-repo runtime settings from `okaydokki.yaml`.
+- `/init repo=<repo>` command to generate minimal setup guidance (`Dockerfile.okd` + `okaydokki.yaml`).
+- Task progress tracking (`last_stage`) exposed in `/task status` and `/last`.
+- New positioning document: `docs/positioning.md`.
+
+### Changed
+
+- `/plan` now shows lightweight progress updates while planning and while revising a plan.
+- Approve flow now uses stage updates as primary run feedback (`agent` -> `sandbox` -> `draft PR`).
+- Approval summary/details now show runtime image and test command resolved from repo config.
+- Failure messages now include `Task ID` and a direct debug hint (`npm run audit:task -- <task_id>`).
+- `SANDBOX_FAILED` messaging is more specific for test-command allowlist violations.
+- README updated with positioning summary, simple execution sequence diagram, and cleaner command examples.
+- Runbook updated to match current flow (`/init`, runtime config requirement, progress updates, `audit:task` usage).
+
+### Fixed
+
+- `docs/philosophy.md` architecture diagram now matches real execution order (approval before execution).
+- Preflight now fails when default repo runtime config file is missing, instead of warning.
+
 ## v0.1.1-beta - 2026-02-19
 
 ### Added

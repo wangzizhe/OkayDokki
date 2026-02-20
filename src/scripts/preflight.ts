@@ -125,7 +125,7 @@ function checkRepoRuntimeConfig(repoPath: string): CheckResult[] {
   const out: CheckResult[] = [];
   const cfgPath = path.join(repoPath, "okaydokki.yaml");
   if (!fs.existsSync(cfgPath)) {
-    out.push(warn("repo runtime config", `missing: ${cfgPath} (fallback to .env defaults)`));
+    out.push(fail("repo runtime config", `missing: ${cfgPath}`));
     return out;
   }
   out.push(ok("repo runtime config", cfgPath));

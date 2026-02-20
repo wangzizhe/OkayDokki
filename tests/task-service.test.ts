@@ -50,6 +50,23 @@ function cleanup(tempDir: string): void {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
+function prepareRepoWithRuntime(ctx: TestContext, repo = "org/name"): void {
+  const repoDir = path.join(ctx.repoRoot, ...repo.split("/"));
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(repoDir, "okaydokki.yaml"),
+    [
+      "sandbox_image: node:22-bookworm-slim",
+      "test_command: npm test",
+      "allowed_test_commands:",
+      "  - npm test",
+      "  - npm run test",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+}
+
 function defaultRunResult(): TaskRunResult {
   return {
     testsResult: "PASS",
@@ -92,7 +109,7 @@ test("retry moves WAIT_CLARIFY to WAIT_APPROVE_WRITE after snapshot is prepared"
     });
     assert.equal(created.task.status, "WAIT_CLARIFY");
 
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    prepareRepoWithRuntime(ctx);
     const retried = await ctx.service.applyAction(created.task.taskId, "retry", "tg:1");
 
     assert.equal(retried.task.status, "WAIT_APPROVE_WRITE");
@@ -104,7 +121,7 @@ test("retry moves WAIT_CLARIFY to WAIT_APPROVE_WRITE after snapshot is prepared"
 test("approve runs task and completes with audit trail", async () => {
   const ctx = setup(defaultRunResult());
   try {
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    prepareRepoWithRuntime(ctx);
     const created = ctx.service.createTask({
       source: "api",
       triggerUser: "tg:1",
@@ -162,7 +179,7 @@ test("approve failure transitions task to FAILED and logs FAILED event", async (
     throw new Error("runner exploded");
   });
   try {
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    prepareRepoWithRuntime(ctx);
     const created = ctx.service.createTask({
       source: "api",
       triggerUser: "tg:1",
@@ -199,7 +216,7 @@ test("approve failure transitions task to FAILED and logs FAILED event", async (
 test("service rejects invalid action with 400", async () => {
   const ctx = setup(defaultRunResult());
   try {
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    prepareRepoWithRuntime(ctx);
     const created = ctx.service.createTask({
       source: "api",
       triggerUser: "tg:1",
@@ -234,7 +251,7 @@ test("tests failure transitions task to FAILED", async () => {
     prLink: null
   });
   try {
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    prepareRepoWithRuntime(ctx);
     const created = ctx.service.createTask({
       source: "api",
       triggerUser: "tg:1",
@@ -274,7 +291,7 @@ test("runner sandbox failure maps to SANDBOX_FAILED", async () => {
     throw new TaskRunnerError("sandbox down", "SANDBOX_FAILED");
   });
   try {
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    prepareRepoWithRuntime(ctx);
     const created = ctx.service.createTask({
       source: "api",
       triggerUser: "tg:1",
@@ -300,7 +317,7 @@ test("runner pr creation failure maps to PR_CREATE_FAILED", async () => {
     throw new TaskRunnerError("pr creation failed", "PR_CREATE_FAILED");
   });
   try {
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    prepareRepoWithRuntime(ctx);
     const created = ctx.service.createTask({
       source: "api",
       triggerUser: "tg:1",
@@ -332,7 +349,7 @@ test("empty diff does not create PR and still completes when tests pass", async 
     prLink: null
   });
   try {
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    prepareRepoWithRuntime(ctx);
     const created = ctx.service.createTask({
       source: "api",
       triggerUser: "tg:1",
@@ -382,18 +399,36 @@ test("listTasks returns recent tasks", () => {
 test("rerunTask clones intent/repo from original task", () => {
   const ctx = setup(defaultRunResult());
   try {
+    prepareRepoWithRuntime(ctx);
     const original = ctx.service.createTask({
       source: "api",
       triggerUser: "tg:1",
       repo: "org/name",
       intent: "fix login 500"
     });
-    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
     const rerun = ctx.service.rerunTask(original.task.taskId, "tg:2", "api");
     assert.equal(rerun.task.taskId !== original.task.taskId, true);
     assert.equal(rerun.task.repo, original.task.repo);
     assert.equal(rerun.task.intent, original.task.intent);
     assert.equal(rerun.task.triggerUser, "tg:2");
+  } finally {
+    cleanup(ctx.tempDir);
+  }
+});
+
+test("createTask enters WAIT_CLARIFY when runtime config is missing", () => {
+  const ctx = setup(defaultRunResult());
+  try {
+    fs.mkdirSync(path.join(ctx.repoRoot, "org", "name"), { recursive: true });
+    const created = ctx.service.createTask({
+      source: "api",
+      triggerUser: "tg:1",
+      repo: "org/name",
+      intent: "fix login 500"
+    });
+    assert.equal(created.task.status, "WAIT_CLARIFY");
+    assert.equal(created.clarifyReason, "RUNTIME_CONFIG_MISSING");
+    assert.equal(created.missingFields?.includes("okaydokki.yaml"), true);
   } finally {
     cleanup(ctx.tempDir);
   }

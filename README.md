@@ -5,14 +5,12 @@
   <a href="LICENSE" style="text-decoration:none;"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" /></a>&nbsp;
   <a href="https://nodejs.org/" style="text-decoration:none;"><img src="https://img.shields.io/badge/node-%3E%3D22-339933.svg" alt="Node >= 22" /></a>
 </p>
-Text your AI agent. Work from anywhere, anytime. 
+**Text your agent when inspiration strikes, anywhere, anytime.**
 
-Approve safely, run in sandbox, ship via Draft PRs.
+OkayDokki turns a moment of idea into a safe, reviewable engineering action.
+It proposes a plan, waits for approval, and delivers only via Draft PRs.
 
-OkayDokki is a human-in-the-loop AI code delivery agent for Telegram:
-- chat and plan like you talk to a developer,
-- require explicit approval before write/run,
-- deliver only through Draft PRs with audit logs.
+OkayDokki closes the **idea-to-execution gap**.
 
 ---
 
@@ -23,6 +21,48 @@ Message your AI agent from anywhere, anytime.
 It works in a sandbox and opens a Draft PR. You approve before merge.
 
 ![OkayDokki DraftPR](docs/assets/draftPR.png)
+
+## Our Philosophy: Safety > Autonomy
+
+* OkayDokki does not run your repository code on our servers.
+  Execution stays in your environment and within your trust boundary.
+* Nothing executes without your explicit approval.
+  Draft PRs are contracts, not silent outcomes.
+* Human-in-the-loop is the default, not an optional mode.
+  Every change is reviewable, replayable, and auditable.
+* We optimize for decision quality and control, not maximum autonomy.
+  If you want fully autonomous execution, this is not that product.
+
+See full design philosophy: `docs/philosophy.md`
+
+## Why OkayDokki
+
+| Dimension         | OkayDokki                  | Typical Coding Agents      |
+| ----------------- | -------------------------- | -------------------------- |
+| Primary interface | IM-first (Telegram)        | IDE/web-first              |
+| Default mode      | Plan-first                 | Execute-first              |
+| Execution gate    | Explicit approval required | Often policy/implicit      |
+| Runtime boundary  | Your environment           | Often platform-managed     |
+| Product goal      | Decision quality + control | Execution speed + autonomy |
+
+See full positioning: `docs/positioning.md`
+
+## How OkayDokki Works
+
+```mermaid
+sequenceDiagram
+  participant U as User (IM)
+  participant C as Control Plane (OkayDokki)
+  participant R as Runner (Local/Sandbox)
+  participant G as GitHub
+
+  U->>C: /task one-line intent
+  C-->>U: Proposal + risk summary
+  U->>C: Approve write
+  C->>R: Apply changes + run tests
+  R->>G: Create Draft PR (only delivery artifact)
+  G-->>U: PR link + execution summary
+```
 
 ## Quick Start
 
@@ -44,6 +84,7 @@ cp .env.example .env
 - `DEFAULT_REPO`
 - `AGENT_CLI_TEMPLATE`
 - `REPO_SNAPSHOT_ROOT`
+- `DEFAULT_REPO` must match a folder name under `REPO_SNAPSHOT_ROOT`
 
 4. Add 2 repo runtime files (copy-paste templates)
 
@@ -99,14 +140,6 @@ npm run preflight
 npm run dev
 ```
 
-## Key Concepts
-
-- Runtime mode: `TELEGRAM_MODE=polling` (recommended for self-hosted)
-- Agent config: `AGENT_PROVIDER` + `AGENT_CLI_TEMPLATE` (+ optional `AGENT_AUTH_MODE=session`)
-- Repo routing: `REPO_SNAPSHOT_ROOT` + `DEFAULT_REPO`
-- Delivery strategy: `DELIVERY_STRATEGY=rolling|isolated`, base via `BASE_BRANCH`
-- Safety by default: approval before write/run, draft PR only, diff policy guards, full audit log (`audit.jsonl`)
-
 ## Provider Presets
 
 Pick one provider and copy its preset into `.env`.
@@ -154,7 +187,7 @@ Generate a plan, then choose:
 Example:
 
 ```text
-/plan repo=okd-sandbox refactor task gateway and add tests
+/plan refactor task gateway and add tests
 ```
 
 ### 3) `/task ...` (Run directly)
@@ -163,15 +196,16 @@ Create executable task directly (still requires approval before write/run).
 Example:
 
 ```text
-/task repo=okd-sandbox add one line "Updated by OkayDokki" to README.md and keep npm test passing
+/task add one line "Updated by OkayDokki" to README.md and keep npm test passing
 ```
 
 ## Commands
 
-- `/task repo=<repo> <goal>`: run directly (approval required)
-- `/plan repo=<repo> <goal>`: plan first, then approve to run
+- `/task <goal>`: run directly (approval required)
+- `/plan <goal>`: plan first, then approve to run
 - `/rerun <task_id>`: rerun as a new task
 - `/task status <task_id>`: show task status
+- `/init repo=<repo>`: print minimal `Dockerfile.okd` + `okaydokki.yaml` setup guide
 
 More command examples: `docs/runbook-live-test.md`
 
@@ -188,13 +222,13 @@ Then in Telegram, run:
 1. Plan request:
 
 ```text
-/plan repo=okd-sandbox refactor task gateway routing and add tests for plan revision flow
+/plan refactor task gateway routing and add tests for plan revision flow
 ```
 
 2. Direct task:
 
 ```text
-/task repo=okd-sandbox add one line "Updated by OkayDokki" to README.md and keep npm test passing
+/task add one line "Updated by OkayDokki" to README.md and keep npm test passing
 ```
 
 Expected outcome:
@@ -206,9 +240,8 @@ Expected outcome:
 
 | Code | Meaning | Action |
 |---|---|---|
-| `POLICY_VIOLATION` | Diff violates policy (blocked path, size/files limit, or binary patch) | Reduce task scope or adjust `.env` policy limits |
 | `AGENT_FAILED` | Agent CLI execution failed | Verify `AGENT_CLI_TEMPLATE` and provider login/session |
-| `SANDBOX_FAILED` | Sandbox validation/test failed | Verify Docker/image and allowed test command |
+| `SANDBOX_FAILED`, `POLICY_VIOLATION` | Runtime/policy validation failed | Verify `okaydokki.yaml` (`sandbox_image`, `test_command`, `allowed_test_commands`) and policy limits |
 | `PR_CREATE_FAILED` | Draft PR creation failed | Verify git push permission and `gh auth status` |
 
 ## Operations
@@ -219,10 +252,6 @@ Expected outcome:
   - Stop current process, then run `npm run dev`
 - Backup DB and audit log
   - `cp okaydokki.db backup-okaydokki.db && cp audit.jsonl backup-audit.jsonl`
-
-## Design Philosophy
-
-- `docs/philosophy.md`
 
 ## Changelog
 

@@ -9,9 +9,12 @@ This is the single runbook for first live integration of Telegram + agent + draf
    - `TELEGRAM_MODE=polling`
    - `AGENT_AUTH_MODE=session`
 3. If `AGENT_AUTH_MODE=session`, login your agent CLI first (example: `codex login`).
-4. Prepare repo snapshot under `REPO_SNAPSHOT_ROOT/<org>/<repo>`.
-5. Ensure `docker` is running.
-6. Ensure `gh` is installed and authenticated.
+4. Prepare repo snapshot under `REPO_SNAPSHOT_ROOT/<repo>` (or your chosen repo id path).
+5. In the target repo root, add runtime config:
+   - `Dockerfile.okd`
+   - `okaydokki.yaml` with `sandbox_image`, `test_command`, `allowed_test_commands`
+6. Ensure `docker` is running.
+7. Ensure `gh` is installed and authenticated.
 
 ## 1) Preflight
 
@@ -88,13 +91,20 @@ curl -s -X POST "$OKD_BASE_URL/api/v1/tasks/$TASK_ID/actions" \
 ## 4) Telegram Live Flow
 
 1. Send:
-   - `/task repo=<org>/<repo> <your intent>`
+   - `/task <your intent>`
 2. If `WAIT_CLARIFY`:
-   - prepare snapshot
+   - If runtime config is missing, run:
+     - `/init repo=<repo>`
+     - create `Dockerfile.okd` and `okaydokki.yaml` in repo root
+   - If snapshot is missing, prepare snapshot under `REPO_SNAPSHOT_ROOT`
    - tap `Retry`
 3. Review approval summary
 4. Tap `Approve`
-5. Confirm final message includes tests + PR link (or explicit failure code)
+5. Observe progress updates:
+   - `agent running...`
+   - `sandbox testing...`
+   - `creating Draft PR...` (when applicable)
+6. Confirm final message includes tests + PR link (or explicit failure code)
 
 ## 5) Expected Audit Trail
 
@@ -102,6 +112,12 @@ Inspect `audit.jsonl`:
 
 ```bash
 tail -n 50 audit.jsonl
+```
+
+Or query one task directly:
+
+```bash
+npm run audit:task -- <task_id>
 ```
 
 Typical success events:
@@ -128,10 +144,10 @@ Failure event:
 - Check `gh auth status`, repo permissions, and branch existence.
 
 4. `SANDBOX_FAILED`
-- Check Docker daemon and image pull availability.
+- Check Docker daemon/image and `okaydokki.yaml` command allowlist.
 
 5. `TEST_FAILED`
-- Open test log in audit context and fix failing tests.
+- Use `npm run audit:task -- <task_id>` and fix failing tests.
 
 ## 7) Quick Checklist
 
@@ -140,5 +156,6 @@ Failure event:
 - [ ] `npm run db:init` succeeds
 - [ ] `npm run dev` is running
 - [ ] `/task ...` creates task message
+- [ ] progress updates appear during execution (`agent` -> `sandbox` -> `draft PR`)
 - [ ] approve/reject buttons work
 - [ ] audit log records `REQUEST/APPROVE/RUN` (+ `PR_CREATED` when applicable)

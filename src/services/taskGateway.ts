@@ -86,6 +86,12 @@ function parseRerunCommand(text: string): { taskId: string } {
   return { taskId: parts[1] };
 }
 
+function parseInitCommand(text: string): { repo: string } {
+  const trimmed = text.trim();
+  const repoMatch = trimmed.match(/repo=([^\s]+)/);
+  return { repo: repoMatch?.[1] ?? config.defaultRepo };
+}
+
 function parseChatCommand(text: string): { repo: string; prompt: string; reset: boolean; cancel: boolean } {
   const trimmed = text.trim();
   if (/^\/chat\s+reset$/i.test(trimmed)) {
@@ -190,6 +196,7 @@ type PendingPlan = {
 };
 
 const CALLBACK_DEDUP_TTL_MS = 2 * 60 * 1000;
+const TEST_LOG_TAIL_LINES = Math.max(3, Number(process.env.TASK_TEST_LOG_TAIL_LINES ?? "12"));
 
 export class TaskGateway {
   private readonly runningApprovals = new Set<string>();
@@ -217,6 +224,11 @@ export class TaskGateway {
   private async handleTask(chatId: string, userId: string, text: string): Promise<void> {
     const trimmed = text.trim();
     const sessionKey = this.planFeedbackSessionKey(chatId, `tg:${userId}`);
+    // Command router for IM input: explicit commands first, then plan-revision reply, then default chat.
+    if (trimmed.startsWith("/init")) {
+      await this.handleInit(chatId, text);
+      return;
+    }
     if (trimmed.startsWith("/help")) {
       await this.handleHelp(chatId);
       return;
@@ -322,7 +334,7 @@ export class TaskGateway {
       const parsed = parsePlanCommand(text);
       const remembered = this.prefs.getStrategy(chatId, `tg:${userId}`);
       const strategy = parsed.strategySpecified ? parsed.deliveryStrategy : (remembered ?? config.deliveryStrategy);
-      await this.im.sendMessage(chatId, "Plan accepted. Thinking...");
+      await this.im.sendMessage(chatId, "Plan accepted. Analyzing repo context...");
       void this.handlePlanAsync(chatId, `tg:${userId}`, parsed.repo, parsed.intent, strategy, parsed.baseBranch);
     } catch (err) {
       await this.im.sendMessage(
@@ -340,6 +352,14 @@ export class TaskGateway {
     strategy: DeliveryStrategy,
     baseBranch: string
   ): Promise<void> {
+    // Keep /plan interactive without noisy streaming: send one delayed progress hint if planning takes time.
+    let completed = false;
+    const progressTimer = setTimeout(() => {
+      if (completed) {
+        return;
+      }
+      void this.im.sendMessage(chatId, "Plan progress: drafting concise steps and risk checks...");
+    }, 2500);
     try {
       const planText = await this.chat.ask(
         chatId,
@@ -347,10 +367,14 @@ export class TaskGateway {
         `Create a concise coding plan for this goal. Respond in English only. Use at most 3 bullet points and include key risk checks: ${intent}`,
         repo
       );
+      completed = true;
+      clearTimeout(progressTimer);
       const planId = newDraftId();
       this.pendingPlans.set(planId, { chatId, userId, repo, intent, strategy, baseBranch, version: 1, planText });
       await this.sendPlanDraft(chatId, planId);
     } catch (err) {
+      completed = true;
+      clearTimeout(progressTimer);
       await this.im.sendMessage(
         chatId,
         err instanceof Error ? err.message : "Failed to generate plan."
@@ -378,17 +402,7 @@ export class TaskGateway {
     });
 
     if (result.needsClarify) {
-      await this.im.sendMessage(
-        chatId,
-        [
-          `Task parsed: ${result.task.intent}`,
-          "Status: WAIT_CLARIFY",
-          `Missing repo snapshot for '${result.task.repo}'.`,
-          `Expected path: ${result.expectedPath ?? "n/a"}`,
-          "Prepare the snapshot, then tap Retry."
-        ].join("\n"),
-        [[{ text: "Retry", callbackData: `rty:${result.task.taskId}` }]]
-      );
+      await this.im.sendMessage(chatId, this.buildClarifyMessage(result), [[{ text: "Retry", callbackData: `rty:${result.task.taskId}` }]]);
       return;
     }
 
@@ -406,17 +420,19 @@ export class TaskGateway {
     try {
       const parsed = parseTaskStatusCommand(text);
       const task = this.service.getTask(parsed.taskId);
+      const stage = this.getTaskProgressSafe(parsed.taskId);
       await this.im.sendMessage(
         chatId,
         [
           `Task: ${task.taskId}`,
           `Status: ${task.status}`,
+          stage ? `Last stage: ${this.formatRunStage(stage)}` : "",
           `Repo: ${task.repo}`,
           `Branch: ${task.branch}`,
           `Strategy: ${task.deliveryStrategy ?? config.deliveryStrategy}`,
           `Base: ${task.baseBranch ?? config.baseBranch}`,
           `Intent: ${task.intent}`
-        ].join("\n")
+        ].filter(Boolean).join("\n")
       );
     } catch (err) {
       await this.im.sendMessage(
@@ -432,15 +448,18 @@ export class TaskGateway {
       await this.im.sendMessage(chatId, "No tasks found yet.");
       return;
     }
+    const stage = this.getTaskProgressSafe(latest.taskId);
     await this.im.sendMessage(
       chatId,
       [
         `Last task: ${latest.taskId}`,
         `Status: ${latest.status}`,
+        stage ? `Last stage: ${this.formatRunStage(stage)}` : "",
         `Repo: ${latest.repo}`,
         `Branch: ${latest.branch}`,
-        `Intent: ${latest.intent}`
-      ].join("\n")
+        `Intent: ${latest.intent}`,
+        `Next: /rerun ${latest.taskId}`
+      ].filter(Boolean).join("\n")
     );
   }
 
@@ -451,9 +470,47 @@ export class TaskGateway {
         "How to use OkayDokki:",
         "- Send a normal message: chat with the agent (no write).",
         "- /plan <goal>: generate a plan, then approve to run.",
-        "- /task <goal>: run directly with approval."
+        "- /task <goal>: run directly with approval.",
+        "- /init repo=<repo>: get Dockerfile.okd and okaydokki.yaml templates."
       ].join("\n")
     );
+  }
+
+  private async handleInit(chatId: string, text: string): Promise<void> {
+    try {
+      const parsed = parseInitCommand(text);
+      const runtime = this.service.getRepoRuntime(parsed.repo);
+      const imageTag = `${parsed.repo.replace(/[^a-zA-Z0-9_.-]/g, "-")}-okd:latest`;
+      await this.im.sendMessage(
+        chatId,
+        [
+          `Repo init guide for: ${parsed.repo}`,
+          `Repo path: ${runtime.repoPath}`,
+          "",
+          "1) Create Dockerfile.okd in the repo root:",
+          "FROM python:3.12-slim",
+          "ENV DEBIAN_FRONTEND=noninteractive",
+          "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git bash build-essential && rm -rf /var/lib/apt/lists/*",
+          "WORKDIR /work",
+          "",
+          "2) Build image:",
+          `docker build -f Dockerfile.okd -t ${imageTag} .`,
+          "",
+          "3) Create okaydokki.yaml in the repo root:",
+          `sandbox_image: ${imageTag}`,
+          "test_command: <your test command>",
+          "allowed_test_commands:",
+          "  - <your test command>",
+          "",
+          "4) Then run /task again."
+        ].join("\n")
+      );
+    } catch (err) {
+      await this.im.sendMessage(
+        chatId,
+        err instanceof Error ? err.message : "Failed to build init guide."
+      );
+    }
   }
 
   private async handleStrategy(chatId: string, userId: string, text: string): Promise<void> {
@@ -545,18 +602,11 @@ export class TaskGateway {
       const parsed = parseRerunCommand(text);
       const rerun = this.service.rerunTask(parsed.taskId, `tg:${userId}`, "telegram");
       if (rerun.needsClarify) {
-        await this.im.sendMessage(
-          chatId,
-          [
-            `Rerun created from: ${parsed.taskId}`,
-            `New task: ${rerun.task.taskId}`,
-            "Status: WAIT_CLARIFY",
-            `Missing repo snapshot for '${rerun.task.repo}'.`,
-            `Expected path: ${rerun.expectedPath ?? "n/a"}`,
-            "Prepare the snapshot, then tap Retry."
-          ].join("\n"),
-          [[{ text: "Retry", callbackData: `rty:${rerun.task.taskId}` }]]
-        );
+        await this.im.sendMessage(chatId, [
+          `Rerun created from: ${parsed.taskId}`,
+          `New task: ${rerun.task.taskId}`,
+          this.buildClarifyMessage(rerun)
+        ].join("\n"), [[{ text: "Retry", callbackData: `rty:${rerun.task.taskId}` }]]);
         return;
       }
 
@@ -684,7 +734,6 @@ export class TaskGateway {
           return;
         }
         this.runningApprovals.add(taskId);
-        await this.im.sendMessage(chatId, `Task ${taskId} accepted. Status: RUNNING`);
         void this.handleApproveAsync(chatId, userId, taskId);
         return;
       }
@@ -723,7 +772,16 @@ export class TaskGateway {
 
   private async handleApproveAsync(chatId: string, userId: string, taskId: string): Promise<void> {
     try {
-      const result = await this.service.applyAction(taskId, "approve", `tg:${userId}`);
+      // Execution runs asynchronously so callback handling can return immediately and avoid duplicate approvals.
+      const result = await this.service.applyAction(taskId, "approve", `tg:${userId}`, async (stage) => {
+        const text =
+          stage === "AGENT_RUNNING"
+            ? `Task ${taskId}: agent running...`
+            : stage === "SANDBOX_TESTING"
+              ? `Task ${taskId}: sandbox testing...`
+              : `Task ${taskId}: creating Draft PR...`;
+        await this.im.sendMessage(chatId, text);
+      });
       await this.im.sendMessage(
         chatId,
         this.buildCompletionMessage(taskId, result.task.intent, result.runResult)
@@ -797,7 +855,14 @@ export class TaskGateway {
     }
 
     this.awaitingPlanFeedback.delete(sessionKey);
-    await this.im.sendMessage(chatId, `Revision accepted for plan v${plan.version}. Thinking...`);
+    await this.im.sendMessage(chatId, `Revision accepted for plan v${plan.version}. Reworking plan...`);
+    let completed = false;
+    const progressTimer = setTimeout(() => {
+      if (completed) {
+        return;
+      }
+      void this.im.sendMessage(chatId, `Plan progress: applying your feedback to v${plan.version}...`);
+    }, 2500);
     try {
       const revisedPlan = await this.chat.ask(
         chatId,
@@ -814,11 +879,15 @@ export class TaskGateway {
         ].join("\n"),
         plan.repo
       );
+      completed = true;
+      clearTimeout(progressTimer);
       plan.planText = revisedPlan;
       plan.version += 1;
       this.pendingPlans.set(planId, plan);
       await this.sendPlanDraft(chatId, planId);
     } catch (err) {
+      completed = true;
+      clearTimeout(progressTimer);
       await this.im.sendMessage(
         chatId,
         err instanceof Error ? err.message : "Failed to revise plan."
@@ -828,12 +897,14 @@ export class TaskGateway {
 
   private buildApprovalSummary(taskId: string): string {
     const task = this.service.getTask(taskId);
+    const runtime = this.service.getRepoRuntime(task.repo);
     return [
       "Approval summary:",
       `- Task: ${task.taskId}`,
       `- Repo/Branch: ${task.repo} / ${task.branch}`,
       `- Intent: ${truncate(task.intent, 100)}`,
-      `- Strategy/Base/Test: ${task.deliveryStrategy ?? config.deliveryStrategy} / ${task.baseBranch ?? config.baseBranch} / ${config.defaultTestCommand}`,
+      `- Strategy/Base/Test: ${task.deliveryStrategy ?? config.deliveryStrategy} / ${task.baseBranch ?? config.baseBranch} / ${runtime.testCommand}`,
+      `- Runtime image: ${runtime.sandboxImage}`,
       "",
       "Tap Details to view full policy limits."
     ].join("\n");
@@ -841,6 +912,7 @@ export class TaskGateway {
 
   private buildApprovalDetails(taskId: string): string {
     const task = this.service.getTask(taskId);
+    const runtime = this.service.getRepoRuntime(task.repo);
     const blocked = config.blockedPathPrefixes.join(", ");
     return [
       "Approval details:",
@@ -850,7 +922,9 @@ export class TaskGateway {
       `- Intent: ${task.intent}`,
       `- Delivery strategy: ${task.deliveryStrategy ?? config.deliveryStrategy}`,
       `- Base branch: ${task.baseBranch ?? config.baseBranch}`,
-      `- Test command: ${config.defaultTestCommand}`,
+      `- Runtime config: ${runtime.configPath}`,
+      `- Runtime image: ${runtime.sandboxImage}`,
+      `- Test command: ${runtime.testCommand}`,
       `- Blocked paths: ${blocked || "none"}`,
       `- Max changed files: ${config.maxChangedFiles}`,
       `- Max diff bytes: ${config.maxDiffBytes}`,
@@ -858,9 +932,13 @@ export class TaskGateway {
     ].join("\n");
   }
 
-  private failureHint(code: string): string {
+  private failureHint(code: string, message?: string): string {
+    if (code === "SANDBOX_FAILED" && message?.includes("Test command is not allowed:")) {
+      return "Update okaydokki.yaml: keep test_command in allowed_test_commands, then rerun.";
+    }
     const hints: Record<string, string> = {
       SNAPSHOT_MISSING: "Prepare repo snapshot under REPO_SNAPSHOT_ROOT and tap Retry.",
+      RUNTIME_CONFIG_MISSING: "Create/complete okaydokki.yaml in the repo root and tap Retry.",
       AGENT_FAILED: "Check AGENT_CLI_TEMPLATE and provider login status.",
       SANDBOX_FAILED: "Check Docker daemon/image and allowed test command.",
       POLICY_VIOLATION: "Reduce diff scope or adjust policy limits/blocked paths.",
@@ -871,14 +949,44 @@ export class TaskGateway {
   }
 
   private buildFailureMessage(taskId: string, err: TaskServiceError): string {
+    // One stable failure shape for Telegram makes support/debug faster across all error codes.
     const lines = [`Task ${taskId} failed.`];
     const detail = this.failureDetail(err);
     lines.push("Execution summary:");
+    lines.push(`- Task ID: ${taskId}`);
     lines.push(`- Failed at: ${this.failureStage(err.code)}`);
     lines.push(`- Code: ${err.code}`);
     lines.push(`- Reason: ${detail ?? "See audit log for details."}`);
-    lines.push(`- Suggested next step: ${this.failureHint(err.code)}`);
+    lines.push(`- Suggested next step: ${this.failureHint(err.code, err.message)}`);
+    lines.push(`- Debug: npm run audit:task -- ${taskId}`);
     return lines.join("\n");
+  }
+
+  private buildClarifyMessage(result: {
+    task: { taskId: string; intent: string; repo: string };
+    clarifyReason?: "SNAPSHOT_MISSING" | "RUNTIME_CONFIG_MISSING";
+    expectedPath?: string;
+    runtimeConfigPath?: string;
+    missingFields?: string[];
+  }): string {
+    if (result.clarifyReason === "RUNTIME_CONFIG_MISSING") {
+      const missing = result.missingFields?.join(", ") || "okaydokki.yaml";
+      return [
+        `Task parsed: ${result.task.intent}`,
+        "Status: WAIT_CLARIFY",
+        `Missing runtime config for '${result.task.repo}'.`,
+        `Required: ${missing}`,
+        `Expected file: ${result.runtimeConfigPath ?? "n/a"}`,
+        "Tip: send /init repo=<repo> to get templates, then tap Retry."
+      ].join("\n");
+    }
+    return [
+      `Task parsed: ${result.task.intent}`,
+      "Status: WAIT_CLARIFY",
+      `Missing repo snapshot for '${result.task.repo}'.`,
+      `Expected path: ${result.expectedPath ?? "n/a"}`,
+      "Prepare the snapshot, then tap Retry."
+    ].join("\n");
   }
 
   private buildCompletionMessage(
@@ -976,18 +1084,22 @@ export class TaskGateway {
       if (!raw) {
         return "test command exited non-zero";
       }
-      const cleaned = raw
+      const lines = raw
         .split("\n")
         .map((line) => line.trim())
-        .filter(Boolean)
-        .slice(0, 8)
-        .join(" | ");
+        .filter(Boolean);
+      const cleaned = lines.slice(Math.max(0, lines.length - TEST_LOG_TAIL_LINES)).join(" | ");
       return truncate(cleaned || raw, 300);
     }
     if (err.code === "AGENT_FAILED") {
       return "agent command failed to produce a valid result";
     }
     if (err.code === "SANDBOX_FAILED") {
+      if (err.message.includes("Test command is not allowed:")) {
+        const idx = err.message.indexOf("Test command is not allowed:");
+        const raw = idx >= 0 ? err.message.slice(idx) : err.message;
+        return truncate(raw.trim(), 300);
+      }
       return "sandbox validation failed (docker/run/test)";
     }
     if (err.code === "PR_CREATE_FAILED") {
@@ -999,6 +1111,7 @@ export class TaskGateway {
   private failureStage(code: string): string {
     const stages: Record<string, string> = {
       SNAPSHOT_MISSING: "repo snapshot preparation",
+      RUNTIME_CONFIG_MISSING: "repo runtime configuration",
       AGENT_FAILED: "agent execution",
       SANDBOX_FAILED: "sandbox validation",
       POLICY_VIOLATION: "diff policy checks",
@@ -1011,6 +1124,26 @@ export class TaskGateway {
 
   private planFeedbackSessionKey(chatId: string, userId: string): string {
     return `${chatId}:${userId}`;
+  }
+
+  private getTaskProgressSafe(taskId: string): string | null {
+    const candidate = this.service as unknown as { getTaskProgress?: (id: string) => string | null };
+    if (typeof candidate.getTaskProgress !== "function") {
+      return null;
+    }
+    return candidate.getTaskProgress(taskId) ?? null;
+  }
+
+  private formatRunStage(stage: string): string {
+    const labels: Record<string, string> = {
+      QUEUED: "queued",
+      AGENT_RUNNING: "agent running",
+      SANDBOX_TESTING: "sandbox testing",
+      CREATING_PR: "creating draft PR",
+      COMPLETED: "completed",
+      FAILED: "failed"
+    };
+    return labels[stage] ?? stage.toLowerCase();
   }
 
   private isProcessedCallback(key: string): boolean {

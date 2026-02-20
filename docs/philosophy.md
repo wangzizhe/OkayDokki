@@ -20,9 +20,7 @@ flowchart TD
     H --> D["Diff + Metadata"]
     D --> V["Policy Checks"]
     V --> S["Sandbox Validation (Docker: no network + read-only mount)"]
-    S --> A2{"Human write approval confirmed?"}
-    A2 -->|No| X["Stop / Reject"]
-    A2 -->|Yes| PR["Draft PR Creation"]
+    S --> PR["Draft PR Creation"]
     PR --> M["Human Review + Merge"]
 
     R --> L["Audit Logger (JSONL)"]

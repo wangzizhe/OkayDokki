@@ -82,6 +82,19 @@ class FakeTaskService {
     };
   }
 
+  getRepoRuntime() {
+    return {
+      repoPath: "/tmp/repos/okd-sandbox",
+      configPath: "/tmp/repos/okd-sandbox/okaydokki.yaml",
+      snapshotExists: true,
+      configExists: true,
+      missingFields: [],
+      sandboxImage: "node:22-bookworm-slim",
+      testCommand: "npm test",
+      allowedTestCommands: ["npm test", "npm run test"]
+    };
+  }
+
   listTasks() {
     return { tasks: [] };
   }
