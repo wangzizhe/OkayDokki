@@ -5,7 +5,7 @@
   <a href="LICENSE" style="text-decoration:none;"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" /></a>&nbsp;
   <a href="https://nodejs.org/" style="text-decoration:none;"><img src="https://img.shields.io/badge/node-%3E%3D22-339933.svg" alt="Node >= 22" /></a>
 </p>
-**Text your agent when inspiration strikes, anywhere, anytime.**
+<strong>Text your agent when inspiration strikes, anywhere, anytime.</strong>
 
 OkayDokki turns a moment of idea into a safe, reviewable engineering action.
 It proposes a plan, waits for approval, and delivers only via Draft PRs.
