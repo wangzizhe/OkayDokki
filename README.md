@@ -2,23 +2,27 @@
 
 <p align="center">
   <a href="https://github.com/wangzizhe/OkayDokki/actions/workflows/ci.yml" style="text-decoration:none;"><img src="https://github.com/wangzizhe/OkayDokki/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>&nbsp;
+  <a href="https://github.com/wangzizhe/OkayDokki/releases" style="text-decoration:none;"><img src="https://img.shields.io/github/release/wangzizhe/OkayDokki.svg?include_prereleases" alt="Release" /></a>&nbsp;
   <a href="LICENSE" style="text-decoration:none;"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" /></a>&nbsp;
   <a href="https://nodejs.org/" style="text-decoration:none;"><img src="https://img.shields.io/badge/node-%3E%3D22-339933.svg" alt="Node >= 22" /></a>
 </p>
-<strong>Text your agent when inspiration strikes, anywhere, anytime.</strong>
+
+<p align="center" style="margin: 0.75rem auto 1rem; max-width: 920px; padding: 0.75rem 1rem; border: 1px solid #d0d7de; border-radius: 8px; background: #f6f8fa;">
+  <strong>Text your agent when inspiration strikes, anywhere, anytime.</strong>
+</p>
 
 OkayDokki turns a moment of idea into a safe, reviewable engineering action.
 It proposes a plan, waits for approval, and delivers only via Draft PRs.
 
 OkayDokki closes the **idea-to-execution gap**.
 
----
+## How to Use
 
-Message your AI agent from anywhere, anytime.
+1. Message your AI agent from anywhere, anytime.
 
 ![OkayDokki ChatBot](docs/assets/chat_full.png)
 
-It works in a sandbox and opens a Draft PR. You approve before merge.
+2. It works in a sandbox and opens a Draft PR. You approve before merge.
 
 ![OkayDokki DraftPR](docs/assets/draftPR.png)
 
@@ -47,7 +51,7 @@ See full design philosophy: `docs/philosophy.md`
 
 See full positioning: `docs/positioning.md`
 
-## How OkayDokki Works
+## How It Works
 
 ```mermaid
 sequenceDiagram
