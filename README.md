@@ -39,6 +39,12 @@ OkayDokki closes the **idea-to-execution gap**.
 
 See full design philosophy: `docs/philosophy.md`
 
+## Legal Notice
+
+Without prior written permission, no content in this repository may be used for AI model training, fine-tuning, evaluation, or dataset construction.
+
+Additional terms: `TERMS.md`
+
 ## Why OkayDokki
 
 | Dimension         | OkayDokki                  | Typical Coding Agents      |
