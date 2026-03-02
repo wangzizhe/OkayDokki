@@ -39,12 +39,6 @@ OkayDokki closes the **idea-to-execution gap**.
 
 See full design philosophy: `docs/philosophy.md`
 
-## Legal Notice
-
-Without prior written permission, no content in this repository may be used for AI model training, fine-tuning, evaluation, or dataset construction.
-
-Additional terms: `TERMS.md`
-
 ## Why OkayDokki
 
 | Dimension         | OkayDokki                  | Typical Coding Agents      |
@@ -275,3 +269,11 @@ Apache License 2.0 (`Apache-2.0`). See `LICENSE`.
 
 - `docs/runbook-live-test.md`
 - `docs/checklists/regression.md`
+
+## Legal Notice
+
+Without prior written permission, no content on this site may be used for AI model training, fine-tuning, evaluation, or dataset construction.
+
+- `LEGAL_NOTICE.md`
+- `CONTENT_AUTHORIZATION_POLICY.md`
+- `robots.txt`

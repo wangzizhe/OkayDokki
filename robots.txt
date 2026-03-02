@@ -1,4 +1,15 @@
+# OkayDokki crawling policy
+# Keep normal web crawlers accessible, but block major AI/LLM crawlers.
+# Policy-Version: v1.0
+# Last updated: 2026-03-02
+
 User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: OAI-SearchBot
 Disallow: /
 
 User-agent: Google-Extended
@@ -8,9 +19,6 @@ User-agent: ClaudeBot
 Disallow: /
 
 User-agent: anthropic-ai
-Disallow: /
-
-User-agent: CCBot
 Disallow: /
 
 User-agent: PerplexityBot
@@ -25,22 +33,10 @@ Disallow: /
 User-agent: ByteSpider
 Disallow: /
 
-User-agent: Meta-ExternalAgent
-Disallow: /
-
-User-agent: Diffbot
-Disallow: /
-
-User-agent: Omgilibot
-Disallow: /
-
-User-agent: Amazonbot
-Disallow: /
-
-User-agent: Applebot-Extended
-Disallow: /
-
 User-agent: KimiBot
+Disallow: /
+
+User-agent: MoonshotBot
 Disallow: /
 
 User-agent: DeepSeekBot
@@ -52,7 +48,10 @@ Disallow: /
 User-agent: QwenBot
 Disallow: /
 
-User-agent: ChatGLM-Spider
+User-agent: Qwen-Search
+Disallow: /
+
+User-agent: GLM-Spider
 Disallow: /
 
 User-agent: MistralAI-User
